@@ -1,0 +1,41 @@
+{
+  "name": "@ict-forward-lab/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run",
+    "migrate": "tsx src/database/migrate.ts",
+    "seed": "tsx src/database/seed.ts",
+    "seed:live": "tsx src/database/seed-live.ts",
+    "backtest": "tsx src/backtest/run-backtest.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/swagger": "^9.7.0",
+    "@fastify/swagger-ui": "^6.0.0",
+    "@fastify/websocket": "^11.0.1",
+    "@ict-forward-lab/core": "workspace:*",
+    "@ict-forward-lab/strategies": "workspace:*",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^16.4.0",
+    "fastify": "^5.2.1",
+    "fastify-plugin": "^5.0.1",
+    "pg": "^8.13.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^3.0.0",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.0",
+    "@types/ws": "^8.5.13",
+    "fast-check": "^3.23.1",
+    "tsx": "^4.19.0",
+    "vitest": "^2.1.8"
+  }
+}

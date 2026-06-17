@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(pnpm exec *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(pnpm test *)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(echo \"tsc exit:$?\")",
+      "Bash(pnpm -r test)",
+      "Bash(pnpm --filter @ict-forward-lab/core build)",
+      "Bash(pnpm --filter @ict-forward-lab/strategies build)",
+      "Bash(echo \"api tsc exit:$?\")",
+      "Bash(echo \"web tsc exit:$?\")",
+      "Bash(timeout 90 pnpm --filter @ict-forward-lab/api add @fastify/swagger @fastify/swagger-ui @fastify/cors)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(pnpm --filter @ict-forward-lab/api add @fastify/swagger @fastify/swagger-ui @fastify/cors)",
+      "Bash(pnpm install *)",
+      "Bash(curl -s \"localhost:3001/api/candles?symbol=BTCUSDT&timeframe=5m&limit=1\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"localhost:3001/api/candles?symbol=BTCUSDT\")",
+      "Bash(curl -s \"localhost:3001/api/signals/status\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"localhost:3001/api/docs/\")",
+      "Bash(pkill -f \"tsx src/server.ts\")",
+      "Bash(read f *)",
+      "Bash([ -f \"docs/$f\" ])",
+      "Bash(pnpm --filter @ict-forward-lab/api add @fastify/cookie bcryptjs)",
+      "Bash(pnpm --filter @ict-forward-lab/api add -D @types/bcryptjs)"
+    ]
+  }
+}
