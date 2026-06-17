@@ -144,6 +144,23 @@ server.registerTool(
 );
 
 server.registerTool(
+  "get_decision_packet",
+  {
+    title: "Get the compact ICT decision packet",
+    description:
+      "The agent-facing 'data brain' snapshot: fuses weekly/session profile, AMD phase, " +
+      "IRL/ERL draw, market structure, liquidity targets, volume profile and a layered bias " +
+      "into one compact JSON, plus a deterministic quant `score` (0-100 with a `recommendation`: " +
+      "ignore < 50, monitor_only 50-64, internal_alert 65-69, send_to_oc 70-79, send_to_oc_and_ha 80+) " +
+      "and a short `narrative`. Decide from THIS packet rather than requesting raw candles. " +
+      "Times are Unix seconds. Volume profile is candle-approximated; score weights are an untuned heuristic. " +
+      "LIVE/in-memory FVG zones populate only while the API has been ingesting the feed.",
+    inputSchema: { symbol: symbol.optional() },
+  },
+  ({ symbol }) => jsonTool(() => apiGet("/decision-packet", { symbol })),
+);
+
+server.registerTool(
   "get_confluence_status",
   {
     title: "Get ICT confluence checklist (bias → sweep → MSS → FVG)",
@@ -226,6 +243,50 @@ server.registerTool(
     },
   },
   (args) => jsonTool(() => apiPost("/backtest/run", args)),
+);
+
+server.registerTool(
+  "run_calibration",
+  {
+    title: "Start a background score-calibration run",
+    description:
+      "Starts a calibration replay over [startDate, endDate] and returns immediately with " +
+      "{ id, status: 'running' }. The job scores a decision packet at each setup-killzone 5m " +
+      "close and resolves each setup's outcome against the following candles. Poll " +
+      "get_calibration with the returned id for the report (win rate by score bucket + " +
+      "per-signal predictive lift). Auto-fetches missing candles. Only one run executes at a time.",
+    inputSchema: {
+      startDate: z.string().describe("ISO date, e.g. 2024-01-01"),
+      endDate: z.string().describe("ISO date, exclusive upper bound"),
+      symbol: symbol.optional(),
+      horizonCandles: z.number().int().min(1).max(500).default(48).describe("Look-ahead 5m candles (48 = 4h)"),
+      minRiskReward: z.number().min(0).default(1.5),
+      killzonesOnly: z.boolean().default(true).describe("Sample only London/New York killzone bars"),
+    },
+  },
+  (args) => jsonTool(() => apiPost("/calibration/run", args)),
+);
+
+server.registerTool(
+  "list_calibrations",
+  {
+    title: "List recent calibration runs",
+    description: "Recent runs (newest first) with status (running | completed | failed) and headline win rate.",
+    inputSchema: {},
+  },
+  () => jsonTool(() => apiGet("/calibration/runs")),
+);
+
+server.registerTool(
+  "get_calibration",
+  {
+    title: "Get a calibration run (poll for the report)",
+    description:
+      "Status of a run and, once `status` is `completed`, the full calibration `report` " +
+      "(byScoreBucket win rates + bySignal lift). Returns status `running` until the replay finishes.",
+    inputSchema: { id: z.string().describe("Calibration run id from run_calibration") },
+  },
+  ({ id }) => jsonTool(() => apiGet(`/calibration/runs/${encodeURIComponent(id)}`)),
 );
 
 async function main() {

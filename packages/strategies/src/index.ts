@@ -19,4 +19,13 @@ export * from "./mss-choch";
 export * from "./entry";
 export * from "./order-blocks";
 export * from "./sessions";
+export * from "./volume-profile";
+export * from "./amd";
+export * from "./irl-erl";
+export * from "./weekly-profile";
+export * from "./session-profile";
+export * from "./narrative";
+export * from "./scoring";
+export * from "./decision-packet";
+export * from "./outcome";
 

@@ -15,6 +15,8 @@ import { forwardTradeRoutes } from "./routes/forward-trades";
 import { backtestRoutes } from "./routes/backtest";
 import { orderBlockRoutes } from "./routes/order-blocks";
 import { structureRoutes } from "./routes/structure";
+import { decisionPacketRoutes } from "./routes/decision-packet";
+import { calibrationRoutes } from "./routes/calibration";
 
 
 const app = Fastify({ logger: true });
@@ -38,6 +40,8 @@ app.register(forwardTradeRoutes, { prefix: "/api" });
 app.register(backtestRoutes, { prefix: "/api" });
 app.register(orderBlockRoutes, { prefix: "/api" });
 app.register(structureRoutes, { prefix: "/api" });
+app.register(decisionPacketRoutes, { prefix: "/api" });
+app.register(calibrationRoutes, { prefix: "/api" });
 
 // Graceful shutdown
 
