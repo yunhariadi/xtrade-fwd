@@ -27,6 +27,14 @@ export function authConfig() {
       process.env.AUTH_COOKIE_SECRET || process.env.API_KEY || "dev-insecure-cookie-secret",
     /** Session lifetime (seconds). */
     maxAgeSec: 60 * 60 * 24 * 7, // 7 days
+    /**
+     * Whether the session cookie is `Secure` (HTTPS-only). Defaults on in
+     * production, but a `Secure` cookie is silently dropped over plain HTTP, so
+     * set AUTH_COOKIE_SECURE=false when serving the UI over http:// (no TLS yet).
+     */
+    cookieSecure:
+      (process.env.AUTH_COOKIE_SECURE ??
+        (process.env.NODE_ENV === "production" ? "true" : "false")) === "true",
   };
 }
 
