@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { dbRowToCandle } from "@ict-forward-lab/core";
 import { detectOrderBlocks } from "@ict-forward-lab/strategies";
 import { orderBlocksSchema } from "../schemas";
+import { getExchange } from "../market-data/market-source";
 
 interface OBQuery {
   symbol?: string;
@@ -18,10 +19,10 @@ export async function orderBlockRoutes(fastify: FastifyInstance) {
 
     const result = await fastify.db.query(
       `SELECT * FROM (
-         SELECT * FROM candles WHERE exchange = 'binance' AND symbol = $1 AND timeframe = $2 AND is_closed = true
+         SELECT * FROM candles WHERE exchange = $3 AND symbol = $1 AND timeframe = $2 AND is_closed = true
          ORDER BY open_time DESC LIMIT 200
        ) sub ORDER BY open_time ASC`,
-      [symbol, timeframe]
+      [symbol, timeframe, getExchange()]
     );
 
     const candles = result.rows.map(dbRowToCandle);

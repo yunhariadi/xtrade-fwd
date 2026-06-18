@@ -3,6 +3,7 @@ import { dbRowToCandle } from "@ict-forward-lab/core";
 import type { CandleRow } from "@ict-forward-lab/core";
 import { BacktestRunner } from "../backtest/backtest-runner";
 import { BacktestStore } from "../backtest/backtest-store";
+import { getExchange } from "../market-data/market-source";
 import type { BacktestConfig, ReplayCandle } from "../backtest/types";
 import { backtestRunSchema, backtestResultsSchema, backtestResultByIdSchema } from "../schemas";
 
@@ -38,10 +39,10 @@ export async function backtestRoutes(fastify: FastifyInstance) {
   ): Promise<ReplayCandle[]> {
     const result = await fastify.db.query<CandleRow>(
       `SELECT * FROM candles
-       WHERE symbol = $1 AND timeframe = '5m' AND is_closed = true
+       WHERE exchange = $4 AND symbol = $1 AND timeframe = '5m' AND is_closed = true
          AND open_time >= $2 AND open_time <= $3
        ORDER BY open_time ASC`,
-      [symbol, new Date(startMs).toISOString(), new Date(endMs).toISOString()],
+      [symbol, new Date(startMs).toISOString(), new Date(endMs).toISOString(), getExchange()],
     );
     return result.rows.map((row) => {
       const c = dbRowToCandle(row);

@@ -4,6 +4,7 @@ import { dbRowToCandle } from "@ict-forward-lab/core";
 import { ictModel2022Strategy, detect4HBias, detectLiquiditySweep, detectMSS, detectFvgEntry } from "@ict-forward-lab/strategies";
 import type { StrategyContext, StrategySignal, BiasDirection, LiquiditySweepResult, MSSResult } from "@ict-forward-lab/strategies";
 import type { WsServer } from "../market-data/ws-server";
+import { getExchange } from "../market-data/market-source";
 import { SignalStore } from "./signal-store";
 
 export interface LiquidityLevel {
@@ -165,18 +166,18 @@ export class StrategyRunner {
       const result = await this.options.pool.query(
         `SELECT * FROM (
            SELECT * FROM candles
-           WHERE exchange = 'binance' AND symbol = $1 AND timeframe = $2 AND is_closed = true
+           WHERE exchange = $5 AND symbol = $1 AND timeframe = $2 AND is_closed = true
              AND open_time <= to_timestamp($3)
            ORDER BY open_time DESC LIMIT $4
          ) sub ORDER BY open_time ASC`,
-        [symbol.toUpperCase(), timeframe, atTime, limit]
+        [symbol.toUpperCase(), timeframe, atTime, limit, getExchange()]
       );
       return result.rows.map(dbRowToCandle);
     }
 
     const result = await this.options.pool.query(
-      `SELECT * FROM candles WHERE exchange = 'binance' AND symbol = $1 AND timeframe = $2 AND is_closed = true ORDER BY open_time ASC LIMIT $3`,
-      [symbol.toUpperCase(), timeframe, limit]
+      `SELECT * FROM candles WHERE exchange = $4 AND symbol = $1 AND timeframe = $2 AND is_closed = true ORDER BY open_time ASC LIMIT $3`,
+      [symbol.toUpperCase(), timeframe, limit, getExchange()]
     );
     return result.rows.map(dbRowToCandle);
   }
@@ -188,10 +189,10 @@ export class StrategyRunner {
   async getLiquidityLevels(symbol: string, timeframe: string): Promise<LiquidityLevel[]> {
     const result = await this.options.pool.query(
       `SELECT * FROM (
-         SELECT * FROM candles WHERE exchange = 'binance' AND symbol = $1 AND timeframe = $2 AND is_closed = true
+         SELECT * FROM candles WHERE exchange = $3 AND symbol = $1 AND timeframe = $2 AND is_closed = true
          ORDER BY open_time DESC LIMIT 200
        ) sub ORDER BY open_time ASC`,
-      [symbol.toUpperCase(), timeframe]
+      [symbol.toUpperCase(), timeframe, getExchange()]
     );
     const candles = result.rows.map(dbRowToCandle);
     if (candles.length < 12) return [];

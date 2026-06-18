@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import { dbRowToCandle, type Candle } from "@ict-forward-lab/core";
 import { assembleDecisionPacket } from "@ict-forward-lab/strategies";
 import { decisionPacketSchema } from "../schemas";
+import { getExchange } from "../market-data/market-source";
 
 interface DecisionPacketQuery {
   symbol?: string;
@@ -53,10 +54,10 @@ async function loadCandles(
   const result = await fastify.db.query(
     `SELECT * FROM (
        SELECT * FROM candles
-       WHERE exchange = 'binance' AND symbol = $1 AND timeframe = $2 AND is_closed = true
+       WHERE exchange = $4 AND symbol = $1 AND timeframe = $2 AND is_closed = true
        ORDER BY open_time DESC LIMIT $3
      ) sub ORDER BY open_time ASC`,
-    [symbol, timeframe, limit]
+    [symbol, timeframe, limit, getExchange()]
   );
   return result.rows.map(dbRowToCandle);
 }
