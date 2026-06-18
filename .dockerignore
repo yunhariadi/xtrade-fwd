@@ -1,0 +1,16 @@
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/tsconfig.tsbuildinfo
+.git
+.github
+*.log
+.env
+.env.*
+!.env.example
+postgres_data
+.kiro
+.vscode
+.claude

@@ -88,6 +88,26 @@ export const orderBlocksSchema = {
   querystring: symbolTimeframeQuery,
 } as const;
 
+export const decisionPacketSchema = {
+  tags: ["analysis"],
+  summary: "Compact ICT decision packet for AI agents",
+  description:
+    "Fuses every ICT engine (weekly/session profile, AMD, IRL/ERL draw, structure, " +
+    "liquidity targets, volume profile, layered bias) into one compact JSON, plus a " +
+    "deterministic quant `score` (0-100, with `recommendation` gating: ignore < 50, " +
+    "monitor_only 50-64, internal_alert 65-69, send_to_oc 70-79, send_to_oc_and_ha 80+) " +
+    "and a short natural-language `narrative`. Designed so an agent decides from a small, " +
+    "high-signal packet instead of raw candles. `timestamp` and all level times are " +
+    "**Unix seconds**. Computed on each call from closed candles. NOTE: the volume " +
+    "profile is candle-approximated and the score weights are an untuned heuristic.",
+  querystring: {
+    type: "object",
+    properties: {
+      symbol: { ...symbol, default: "BTCUSDT" },
+    },
+  },
+} as const;
+
 export const liquiditySchema = {
   tags: ["analysis"],
   summary: "Liquidity levels (swing highs/lows) with swept status",
@@ -190,6 +210,58 @@ export const backtestRunSchema = {
 export const backtestResultsSchema = {
   tags: ["backtest"],
   summary: "List recent backtest result summaries",
+} as const;
+
+export const calibrationRunSchema = {
+  tags: ["analysis"],
+  summary: "Start a background score-calibration run",
+  description:
+    "Kicks off a calibration replay over [startDate, endDate] and returns immediately with " +
+    "`{ id, status: 'running' }` (202). The job assembles a decision packet at each " +
+    "setup-killzone 5m close, derives a tradeable setup, and resolves its outcome against " +
+    "the following candles. Poll `GET /api/calibration/runs/:id` for the report: overall " +
+    "win rate / avg R, win rate by score bucket (do higher scores actually win?), and " +
+    "per-signal predictive lift (to re-weight SCORE_WEIGHTS). Auto-fetches missing candles. " +
+    "Only one run executes at a time (returns 409 if one is already running).",
+  body: {
+    type: "object",
+    required: ["startDate", "endDate"],
+    properties: {
+      startDate: { type: "string", description: "ISO date, e.g. 2024-01-01" },
+      endDate: { type: "string", description: "ISO date, exclusive upper bound" },
+      symbol: { ...symbol, default: "BTCUSDT" },
+      horizonCandles: {
+        type: "integer",
+        minimum: 1,
+        maximum: 500,
+        default: 48,
+        description: "Future 5m candles to look ahead when resolving each setup (48 = 4h)",
+      },
+      minRiskReward: { type: "number", minimum: 0, default: 1.5 },
+      killzonesOnly: {
+        type: "boolean",
+        default: true,
+        description: "Sample only London/New York killzone bars",
+      },
+    },
+  },
+} as const;
+
+export const calibrationRunsSchema = {
+  tags: ["analysis"],
+  summary: "List recent calibration runs",
+  description:
+    "Recent runs (newest first) with status (running | completed | failed) and headline win rate.",
+} as const;
+
+export const calibrationRunByIdSchema = {
+  tags: ["analysis"],
+  summary: "Get a calibration run (status + full report when completed)",
+  params: {
+    type: "object",
+    required: ["id"],
+    properties: { id: { type: "string" } },
+  },
 } as const;
 
 export const backtestResultByIdSchema = {

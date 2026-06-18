@@ -8,6 +8,7 @@
 | [authentication.md](./authentication.md) | Full auth reference — human cookie login + agent API key, setup, endpoints, cookie details, rate limiting, web integration, security notes. |
 | [agent-prompt.md](./agent-prompt.md) | Ready-to-paste agent system prompt (full + compact) and few-shot examples encoding tool selection, data-trust rules, and the read-only boundary. |
 | [ict-concepts-pine-reference.md](./ict-concepts-pine-reference.md) | ICT concept reference from the original Pine Script indicator. |
+| [deployment.md](./deployment.md) | Turnkey VPS deploy with Docker Compose — config, security checklist, running the stack, calibration, MCP wiring. |
 
 ## At a glance
 
