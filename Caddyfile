@@ -1,0 +1,42 @@
+# Reverse proxy / front door for the ICT Forward Lab stack.
+#
+# One origin fronts everything:
+#   SITE/        → Next.js web app   (web:3000)
+#   SITE/api/*   → Fastify REST API  (api:3001)  ← browser + Hermes-Agent
+#   SITE/ws      → market-data WebSocket (api:3001, upgraded automatically)
+#
+# SITE_ADDRESS (from docker-compose env) decides the mode:
+#   :80                     → plain HTTP on every host  (IP-only, no cert)
+#   lab.example.com         → auto-HTTPS via Let's Encrypt (needs real DNS + 80/443)
+# Browsers may open ws:// from an http:// page, so the chart works in both modes.
+
+{
+	# Email used for the ACME account / expiry notices. Only relevant in HTTPS mode.
+	email {$ACME_EMAIL}
+}
+
+{$SITE_ADDRESS} {
+	encode gzip
+
+	# --- Market-data WebSocket --------------------------------------------------
+	# Caddy detects the Upgrade header and proxies the WS transparently; no extra
+	# config needed. The browser bundle connects here via NEXT_PUBLIC_WS_URL.
+	@ws path /ws
+	handle @ws {
+		reverse_proxy api:3001
+	}
+
+	# --- REST API ---------------------------------------------------------------
+	# The /api prefix is PRESERVED (Fastify registers its routes under /api), so
+	# use `handle` (not `handle_path`, which would strip it). Same URL works for
+	# the web app's fetch() calls and for Hermes-Agent's x-api-key requests.
+	@api path /api/*
+	handle @api {
+		reverse_proxy api:3001
+	}
+
+	# --- Web app (catch-all) ----------------------------------------------------
+	handle {
+		reverse_proxy web:3000
+	}
+}

@@ -49,8 +49,10 @@ services:
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ict_forward_lab
       REDIS_URL: redis://redis:6379
       API_PORT: "3001"
+    # Bound to loopback only — the internet reaches the API through Caddy (TLS).
+    # Reachable in-network as http://api:3001 and on the host for local debugging.
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,6 +68,9 @@ services:
       args:
         # All baked at build time (Next inlines NEXT_PUBLIC_* and freezes the
         # /api rewrite destination into the build manifest) — rebuild to change.
+        # The browser opens the WS directly at the public domain via Caddy, so in
+        # production set NEXT_PUBLIC_WS_URL=wss://<your-domain>/ws in .env. The
+        # localhost default only works for a host-run dev API.
         NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-ws://localhost:3001/ws}
         NEXT_PUBLIC_REQUIRE_LOGIN: ${NEXT_PUBLIC_REQUIRE_LOGIN:-false}
         # Server-side /api proxy target inside the Docker network.
@@ -76,11 +81,36 @@ services:
       # Runtime gate for the page middleware (server-side). Keep in sync with the
       # NEXT_PUBLIC_REQUIRE_LOGIN build arg, which controls the client UI.
       WEB_REQUIRE_LOGIN: ${WEB_REQUIRE_LOGIN:-false}
+    # Loopback only — the internet reaches the web app through Caddy (TLS).
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       - api
     restart: unless-stopped
 
+  # Reverse proxy / front door. Routes /ws → api, /api/* → api, else → web.
+  #   SITE_ADDRESS=:80              plain HTTP, works on a bare IP (no cert)
+  #   SITE_ADDRESS=lab.example.com  auto-HTTPS via Let's Encrypt (real DNS + 80/443)
+  caddy:
+    profiles: ["app"]
+    image: caddy:2
+    container_name: ict-forward-lab-caddy
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:
