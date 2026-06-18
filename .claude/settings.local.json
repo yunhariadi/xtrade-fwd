@@ -51,7 +51,14 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(echo \"exit=$?\")",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(node -e \"const p=require\\('./apps/api/package.json'\\); console.log\\('type:', p.type\\)\")",
+      "Bash(node apps/api/dist/server.js)",
+      "Bash(node -e \"console.log\\('root type:', require\\('./package.json'\\).type\\)\")",
+      "Bash(pnpm --filter @ict-forward-lab/api start)",
+      "Bash(echo \"pid=$!\")",
+      "Bash(perl -e 'select\\(undef,undef,undef,5\\)')",
+      "Read(//tmp/**)"
     ]
   }
 }
