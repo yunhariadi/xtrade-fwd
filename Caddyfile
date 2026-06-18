@@ -10,10 +10,10 @@
 #   lab.example.com         → auto-HTTPS via Let's Encrypt (needs real DNS + 80/443)
 # Browsers may open ws:// from an http:// page, so the chart works in both modes.
 
-{
-	# Email used for the ACME account / expiry notices. Only relevant in HTTPS mode.
-	email {$ACME_EMAIL}
-}
+# Note: no global `email` directive — it must have a value, and on a bare IP
+# (SITE_ADDRESS=:80) there's no ACME, so an empty ACME_EMAIL would crash Caddy.
+# In domain/HTTPS mode Caddy still gets certs without it; add `email you@host`
+# inside the site block below if you want ACME expiry notices.
 
 {$SITE_ADDRESS} {
 	encode gzip
