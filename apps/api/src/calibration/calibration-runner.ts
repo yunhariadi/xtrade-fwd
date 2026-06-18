@@ -12,6 +12,7 @@ import {
   type SetupForOutcome,
 } from "@ict-forward-lab/strategies";
 import { HistoricalFetcher } from "../backtest/historical-fetcher";
+import { getExchange } from "../market-data/market-source";
 import type { CalibrationConfig, CalibrationRunResult } from "./types";
 
 /** Killzones where ICT setups form; calibration samples only these by default. */
@@ -109,10 +110,10 @@ export class CalibrationRunner {
     endMs: number
   ): Promise<Candle[]> {
     const result = await this.pool.query(
-      `SELECT * FROM candles WHERE exchange = 'binance' AND symbol = $1 AND timeframe = $2
+      `SELECT * FROM candles WHERE exchange = $5 AND symbol = $1 AND timeframe = $2
        AND open_time >= $3 AND open_time <= $4 AND is_closed = true
        ORDER BY open_time ASC`,
-      [symbol, timeframe, new Date(startMs).toISOString(), new Date(endMs).toISOString()]
+      [symbol, timeframe, new Date(startMs).toISOString(), new Date(endMs).toISOString(), getExchange()]
     );
     return result.rows.map(dbRowToCandle);
   }

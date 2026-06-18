@@ -7,6 +7,7 @@ import { ForwardTestEngine } from "../forward-test/forward-test-engine";
 import { AccountTracker } from "../forward-test/account-tracker";
 import type { ForwardTestConfig, ForwardTrade } from "../forward-test/types";
 import { HistoricalFetcher } from "./historical-fetcher";
+import { getExchange } from "../market-data/market-source";
 import { calculateMetrics, buildEquityCurve } from "./metrics-calculator";
 import type { BacktestConfig, BacktestResult } from "./types";
 
@@ -110,7 +111,7 @@ export class BacktestRunner {
       // Build strategy context with only candles available at this point
       const ctx: StrategyContext = {
         symbol: config.symbol,
-        exchange: "binance",
+        exchange: getExchange(),
         candles5m: candles5m.slice(0, i + 1).slice(-100),
         candles15m: candles15m.filter(c => c.time <= currentTime).slice(-100),
         candles1h: candles1h.filter(c => c.time <= currentTime).slice(-50),
@@ -155,10 +156,10 @@ export class BacktestRunner {
 
   private async loadCandles(symbol: string, timeframe: string, startMs: number, endMs: number): Promise<Candle[]> {
     const result = await this.pool.query(
-      `SELECT * FROM candles WHERE exchange = 'binance' AND symbol = $1 AND timeframe = $2
+      `SELECT * FROM candles WHERE exchange = $5 AND symbol = $1 AND timeframe = $2
        AND open_time >= $3 AND open_time <= $4 AND is_closed = true
        ORDER BY open_time ASC`,
-      [symbol, timeframe, new Date(startMs).toISOString(), new Date(endMs).toISOString()]
+      [symbol, timeframe, new Date(startMs).toISOString(), new Date(endMs).toISOString(), getExchange()]
     );
     return result.rows.map(dbRowToCandle);
   }

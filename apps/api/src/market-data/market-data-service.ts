@@ -6,13 +6,12 @@ import { BybitWsClient } from "./bybit-ws-client";
 import { normalizeKline, type NormalizationResult } from "./kline-normalizer";
 import { normalizeBybitKline } from "./bybit-kline-normalizer";
 import { timeframeToBybitInterval, timeframeToDuration } from "./timeframe-utils";
+import { getMarketSource, type MarketSource } from "./market-source";
 import { CandleStore } from "./candle-store";
 import { WsServer } from "./ws-server";
 import { FvgTracker } from "../fvg/fvg-tracker";
 import { StrategyRunner } from "../strategy/strategy-runner";
 import { setWsServer } from "./get-ws-server";
-
-type MarketSource = "binance" | "bybit";
 
 interface SourceClient {
   connect(): void;
@@ -43,8 +42,7 @@ export class MarketDataService {
   private strategyRunner: StrategyRunner;
 
   constructor(private options: MarketDataServiceOptions) {
-    const requested = (process.env.MARKET_SOURCE ?? "binance").toLowerCase();
-    this.source = requested === "bybit" ? "bybit" : "binance";
+    this.source = getMarketSource();
     this.exchange = this.source;
 
     const symbol = options.symbol.toUpperCase();
