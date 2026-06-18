@@ -62,7 +62,11 @@
       "Bash(node -e \"const m=require\\('./apps/web/.next/routes-manifest.json'\\); console.log\\(JSON.stringify\\(m.rewrites,null,1\\)\\)\")",
       "Bash(API_PROXY_TARGET=http://api:3001 pnpm --filter @ict-forward-lab/web build)",
       "Bash(echo \"build exit=$?\")",
-      "Bash(node -e \"const m=require\\('./apps/web/.next/routes-manifest.json'\\); console.log\\(JSON.stringify\\(m.rewrites.afterFiles,null,1\\)\\)\")"
+      "Bash(node -e \"const m=require\\('./apps/web/.next/routes-manifest.json'\\); console.log\\(JSON.stringify\\(m.rewrites.afterFiles,null,1\\)\\)\")",
+      "Bash(DOMAIN=lab.example.com ACME_EMAIL=you@example.com docker compose --profile app config)",
+      "Bash(docker compose *)",
+      "Bash(SITE_ADDRESS=lab.example.com docker compose --profile app config)",
+      "Bash(git restore *)"
     ]
   }
 }
