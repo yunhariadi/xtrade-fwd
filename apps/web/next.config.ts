@@ -1,10 +1,10 @@
 import type { NextConfig } from "next";
 
-// Where the Next server proxies /api/* to. Evaluated when the server boots
-// (rewrites run server-side at startup, not baked into static HTML), so it is
-// runtime-configurable: localhost for local dev, the `api` service inside Docker,
-// or any internal URL in production. WebSocket (/ws) is NOT proxied here — the
-// browser connects directly using NEXT_PUBLIC_WS_URL.
+// Where the Next server proxies /api/* to. NOTE: Next freezes rewrite
+// destinations into the build manifest at BUILD time, so this must be set when
+// `next build` runs (a Docker build arg), not at container start. Localhost for
+// local dev; the `api` service name inside Docker. WebSocket (/ws) is NOT proxied
+// here — the browser connects directly using NEXT_PUBLIC_WS_URL.
 const API_PROXY_TARGET = (process.env.API_PROXY_TARGET ?? "http://localhost:3001").replace(/\/$/, "");
 
 const nextConfig: NextConfig = {

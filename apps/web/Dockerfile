@@ -17,8 +17,12 @@ WORKDIR /app
 FROM base AS build
 ARG NEXT_PUBLIC_WS_URL=ws://localhost:3001/ws
 ARG NEXT_PUBLIC_REQUIRE_LOGIN=false
+# Next bakes rewrite destinations into the build manifest, so the /api proxy
+# target must be set at BUILD time (not runtime).
+ARG API_PROXY_TARGET=http://localhost:3001
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 ENV NEXT_PUBLIC_REQUIRE_LOGIN=$NEXT_PUBLIC_REQUIRE_LOGIN
+ENV API_PROXY_TARGET=$API_PROXY_TARGET
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.json ./
 COPY packages/core/package.json packages/core/
 COPY packages/strategies/package.json packages/strategies/
