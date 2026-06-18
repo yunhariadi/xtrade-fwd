@@ -1,13 +1,28 @@
 import type { Pool } from "pg";
 import type { FastifyInstance } from "fastify";
 import type { Candle } from "@ict-forward-lab/core";
-import { BinanceWsClient, BinanceKlineEvent } from "./binance-ws-client";
-import { normalizeKline } from "./kline-normalizer";
+import { BinanceWsClient } from "./binance-ws-client";
+import { BybitWsClient } from "./bybit-ws-client";
+import { normalizeKline, type NormalizationResult } from "./kline-normalizer";
+import { normalizeBybitKline } from "./bybit-kline-normalizer";
+import { timeframeToBybitInterval, timeframeToDuration } from "./timeframe-utils";
 import { CandleStore } from "./candle-store";
 import { WsServer } from "./ws-server";
 import { FvgTracker } from "../fvg/fvg-tracker";
 import { StrategyRunner } from "../strategy/strategy-runner";
 import { setWsServer } from "./get-ws-server";
+
+type MarketSource = "binance" | "bybit";
+
+interface SourceClient {
+  connect(): void;
+  disconnect(): void;
+  on(event: "kline", listener: (raw: unknown) => void): void;
+  on(event: "connected", listener: () => void): void;
+  on(event: "disconnected", listener: (code: number, reason: string) => void): void;
+  on(event: "reconnecting", listener: (attempt: number) => void): void;
+  on(event: "error", listener: (error: Error) => void): void;
+}
 
 export interface MarketDataServiceOptions {
   binanceWsUrl: string;
@@ -18,27 +33,54 @@ export interface MarketDataServiceOptions {
 }
 
 export class MarketDataService {
-  private wsClient: BinanceWsClient;
+  private source: MarketSource;
+  private exchange: string;
+  private wsClient: SourceClient;
+  private parse: (raw: unknown) => NormalizationResult[];
   private candleStore: CandleStore;
   private wsServer: WsServer;
   private fvgTracker: FvgTracker;
   private strategyRunner: StrategyRunner;
 
   constructor(private options: MarketDataServiceOptions) {
-    const streams = options.timeframes.map(
-      (tf) => `${options.symbol.toLowerCase()}@kline_${tf}`,
-    );
+    const requested = (process.env.MARKET_SOURCE ?? "binance").toLowerCase();
+    this.source = requested === "bybit" ? "bybit" : "binance";
+    this.exchange = this.source;
 
-    this.wsClient = new BinanceWsClient({
-      url: options.binanceWsUrl,
-      streams,
-      reconnectBaseDelay: 1000,
-      reconnectMaxDelay: 60000,
-    });
+    const symbol = options.symbol.toUpperCase();
+
+    if (this.source === "bybit") {
+      const url =
+        process.env.BYBIT_WS_URL ?? "wss://stream.bybit.com/v5/public/linear";
+      const topics = options.timeframes.map(
+        (tf) => `kline.${timeframeToBybitInterval(tf)}.${symbol}`,
+      );
+      this.wsClient = new BybitWsClient({
+        url,
+        topics,
+        reconnectBaseDelay: 1000,
+        reconnectMaxDelay: 60000,
+      }) as unknown as SourceClient;
+      this.parse = normalizeBybitKline;
+    } else {
+      const streams = options.timeframes.map(
+        (tf) => `${options.symbol.toLowerCase()}@kline_${tf}`,
+      );
+      this.wsClient = new BinanceWsClient({
+        url: options.binanceWsUrl,
+        streams,
+        reconnectBaseDelay: 1000,
+        reconnectMaxDelay: 60000,
+      }) as unknown as SourceClient;
+      this.parse = (raw) => {
+        const r = normalizeKline(raw);
+        return r ? [r] : [];
+      };
+    }
 
     this.candleStore = new CandleStore({
       pool: options.pool,
-      exchange: "binance",
+      exchange: this.exchange,
     });
 
     this.wsServer = new WsServer(options.fastify);
@@ -66,11 +108,13 @@ export class MarketDataService {
   }
 
   /**
-   * Connect to Binance WS and start processing. Call after server is ready.
+   * Connect to the market-data source and start processing. Call after server is ready.
    */
   async connect(): Promise<void> {
     this.setupEventHandlers();
     this.wsClient.connect();
+
+    this.options.fastify.log.info(`Market data source: ${this.source}`);
 
     // Load historical candles for FVG tracking.
     // Must match the window the chart renders (newest 500, see candleRoutes):
@@ -79,10 +123,10 @@ export class MarketDataService {
       const result = await this.options.pool.query(
         `SELECT * FROM (
            SELECT * FROM candles
-           WHERE exchange = 'binance' AND symbol = $1 AND timeframe = $2 AND is_closed = true
+           WHERE exchange = $1 AND symbol = $2 AND timeframe = $3 AND is_closed = true
            ORDER BY open_time DESC LIMIT 500
          ) sub ORDER BY open_time ASC`,
-        [this.options.symbol.toUpperCase(), tf],
+        [this.exchange, this.options.symbol.toUpperCase(), tf],
       );
 
       if (result.rows.length > 0) {
@@ -112,36 +156,35 @@ export class MarketDataService {
   }
 
   private setupEventHandlers(): void {
-    this.wsClient.on("kline", (event: BinanceKlineEvent) => {
-      this.handleKline(event);
+    this.wsClient.on("kline", (raw: unknown) => {
+      for (const result of this.parse(raw)) {
+        void this.processCandle(result);
+      }
     });
 
     this.wsClient.on("connected", () => {
-      this.options.fastify.log.info("Connected to Binance WS");
-      this.handleReconnect();
+      this.options.fastify.log.info(`Connected to ${this.source} WS`);
+      void this.handleReconnect();
     });
 
     this.wsClient.on("disconnected", (code, reason) => {
       this.options.fastify.log.warn(
-        `Binance WS disconnected: ${code} ${reason}`,
+        `${this.source} WS disconnected: ${code} ${reason}`,
       );
     });
 
     this.wsClient.on("reconnecting", (attempt) => {
       this.options.fastify.log.info(
-        `Binance WS reconnecting (attempt ${attempt})`,
+        `${this.source} WS reconnecting (attempt ${attempt})`,
       );
     });
 
     this.wsClient.on("error", (err) => {
-      this.options.fastify.log.error(`Binance WS error: ${err.message}`);
+      this.options.fastify.log.error(`${this.source} WS error: ${err.message}`);
     });
   }
 
-  private async handleKline(event: BinanceKlineEvent): Promise<void> {
-    const result = normalizeKline(event);
-    if (!result) return;
-
+  private async processCandle(result: NormalizationResult): Promise<void> {
     const { candle, symbol, timeframe } = result;
 
     if (candle.isClosed) {
@@ -183,55 +226,118 @@ export class MarketDataService {
 
   private async handleReconnect(): Promise<void> {
     for (const tf of this.options.timeframes) {
-      await this.backfill(this.options.symbol, tf);
+      await this.backfill(this.options.symbol.toUpperCase(), tf);
     }
   }
 
   private async backfill(symbol: string, timeframe: string): Promise<void> {
     const lastTime = await this.candleStore.getLastCandleTime(symbol, timeframe);
 
-    // If no rows exist yet, do an initial fetch of the most recent 500 closed candles.
-    // If rows exist, fetch everything from the last stored candle up to now.
-    const url = lastTime
-      ? `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${timeframe}&startTime=${(lastTime + 1) * 1000}&limit=1000`
-      : `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${timeframe}&limit=500`;
-
     try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Backfill HTTP ${response.status}`);
+      const candles =
+        this.source === "bybit"
+          ? await this.fetchBybitKlines(symbol, timeframe, lastTime)
+          : await this.fetchBinanceKlines(symbol, timeframe, lastTime);
 
-      const klines = (await response.json()) as unknown[][];
       let backfilled = 0;
-
-      for (const k of klines) {
-        const candle = this.restKlineToCandle(k);
-        if (candle && candle.isClosed) {
-          const inserted = await this.candleStore.persist(candle, symbol, timeframe);
-          if (inserted) {
-            this.wsServer.broadcast("candle:closed", candle, symbol, timeframe);
-            backfilled++;
-          }
+      for (const candle of candles) {
+        if (!candle.isClosed) continue;
+        const inserted = await this.candleStore.persist(candle, symbol, timeframe);
+        if (inserted) {
+          this.wsServer.broadcast("candle:closed", candle, symbol, timeframe);
+          backfilled++;
         }
       }
 
       if (backfilled > 0) {
-        this.options.fastify.log.info(`Backfilled ${backfilled} candles for ${symbol}/${timeframe}`);
+        this.options.fastify.log.info(
+          `Backfilled ${backfilled} candles for ${symbol}/${timeframe}`,
+        );
       }
     } catch (err) {
-      this.options.fastify.log.error(`Backfill failed for ${symbol}/${timeframe}: ${(err as Error).message}`);
+      this.options.fastify.log.error(
+        `Backfill failed for ${symbol}/${timeframe}: ${(err as Error).message}`,
+      );
     }
   }
 
-  private restKlineToCandle(k: unknown[]): Candle | null {
-    if (!Array.isArray(k) || k.length < 11) return null;
-    return {
-      time: Math.floor(Number(k[0]) / 1000),
-      open: Number(k[1]),
-      high: Number(k[2]),
-      low: Number(k[3]),
-      close: Number(k[4]),
-      volume: Number(k[5]),
-      isClosed: true,
+  private async fetchBinanceKlines(
+    symbol: string,
+    timeframe: string,
+    lastTime: number | null,
+  ): Promise<Candle[]> {
+    const url = lastTime
+      ? `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${timeframe}&startTime=${(lastTime + 1) * 1000}&limit=1000`
+      : `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${timeframe}&limit=500`;
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Backfill HTTP ${response.status}`);
+
+    const klines = (await response.json()) as unknown[][];
+    const nowSec = Date.now() / 1000;
+    const duration = timeframeToDuration(timeframe);
+
+    const candles: Candle[] = [];
+    for (const k of klines) {
+      if (!Array.isArray(k) || k.length < 6) continue;
+      const time = Math.floor(Number(k[0]) / 1000);
+      candles.push({
+        time,
+        open: Number(k[1]),
+        high: Number(k[2]),
+        low: Number(k[3]),
+        close: Number(k[4]),
+        volume: Number(k[5]),
+        // Binance returns the in-progress bucket as the last row; only treat a
+        // bucket as closed once its window has fully elapsed.
+        isClosed: time + duration <= nowSec,
+      });
+    }
+    return candles;
+  }
+
+  private async fetchBybitKlines(
+    symbol: string,
+    timeframe: string,
+    lastTime: number | null,
+  ): Promise<Candle[]> {
+    const interval = timeframeToBybitInterval(timeframe);
+    const base = `https://api.bybit.com/v5/market/kline?category=linear&symbol=${symbol}&interval=${interval}&limit=1000`;
+    const url = lastTime ? `${base}&start=${(lastTime + 1) * 1000}` : base;
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Backfill HTTP ${response.status}`);
+
+    const json = (await response.json()) as {
+      retCode?: number;
+      retMsg?: string;
+      result?: { list?: string[][] };
     };
+    if (json.retCode !== 0) {
+      throw new Error(`Bybit retCode ${json.retCode}: ${json.retMsg}`);
+    }
+
+    const list = json.result?.list ?? [];
+    const nowSec = Date.now() / 1000;
+    const duration = timeframeToDuration(timeframe);
+
+    // Bybit returns newest-first; re-sort ascending. Each row is
+    // [start, open, high, low, close, volume, turnover] (strings, start in ms).
+    const candles: Candle[] = list
+      .map((k) => {
+        const time = Math.floor(Number(k[0]) / 1000);
+        return {
+          time,
+          open: Number(k[1]),
+          high: Number(k[2]),
+          low: Number(k[3]),
+          close: Number(k[4]),
+          volume: Number(k[5]),
+          isClosed: time + duration <= nowSec,
+        };
+      })
+      .sort((a, b) => a.time - b.time);
+
+    return candles;
   }
 }
