@@ -32,4 +32,7 @@ COPY --from=build /app /app
 WORKDIR /app
 EXPOSE 3001
 # Apply idempotent migrations (CREATE TABLE IF NOT EXISTS) then start the server.
-CMD ["sh", "-c", "pnpm --filter @ict-forward-lab/api migrate && node apps/api/dist/server.js"]
+# The API runs via tsx (like dev): the TS build targets a bundler
+# (module: ESNext, moduleResolution: bundler) and emits extensionless ESM
+# imports that Node's native loader can't resolve, but tsx resolves them.
+CMD ["sh", "-c", "pnpm --filter @ict-forward-lab/api migrate && pnpm --filter @ict-forward-lab/api start"]
