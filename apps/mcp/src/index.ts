@@ -52,6 +52,15 @@ async function apiPost(path: string, payload: unknown): Promise<unknown> {
   return body ? JSON.parse(body) : null;
 }
 
+/** DELETE `/api{path}`; returns parsed JSON or throws. */
+async function apiDelete(path: string): Promise<unknown> {
+  const url = `${API_BASE_URL}/api${path}`;
+  const res = await fetch(url, { method: "DELETE", headers: headers() });
+  const body = await res.text();
+  if (!res.ok) throw new Error(`DELETE ${path} → ${res.status}: ${body}`);
+  return body ? JSON.parse(body) : null;
+}
+
 /** Wrap a JSON-returning call into the MCP text-content envelope. */
 async function jsonTool(fn: () => Promise<unknown>) {
   try {
@@ -287,6 +296,52 @@ server.registerTool(
     inputSchema: { id: z.string().describe("Calibration run id from run_calibration") },
   },
   ({ id }) => jsonTool(() => apiGet(`/calibration/runs/${encodeURIComponent(id)}`)),
+);
+
+const alertDirection = z
+  .enum(["above", "below", "cross"])
+  .describe("above = price crosses UP through target; below = crosses DOWN through; cross = either direction");
+
+server.registerTool(
+  "create_alert",
+  {
+    title: "Create a price alert",
+    description:
+      "Create a price-cross alert. It fires when the live price crosses targetPrice in the given " +
+      "direction; when it fires the API pushes a notification (e.g. to Telegram). One-shot by default; " +
+      "set repeat=true to re-arm after each crossing. Returns the created alert with its id and status 'active'.",
+    inputSchema: {
+      symbol,
+      direction: alertDirection,
+      targetPrice: z.number().positive().describe("Price level to watch"),
+      repeat: z.boolean().default(false).describe("Re-arm after firing instead of one-shot"),
+      note: z.string().optional().describe("Free-text note, echoed back in the notification"),
+    },
+  },
+  ({ symbol, direction, targetPrice, repeat, note }) =>
+    jsonTool(() => apiPost("/alerts", { symbol, direction, targetPrice, repeat, note })),
+);
+
+server.registerTool(
+  "list_alerts",
+  {
+    title: "List price alerts",
+    description:
+      "Price alerts (optionally filtered by symbol). Each has status active|triggered|disabled and, " +
+      "once fired, triggeredAt/triggeredPrice.",
+    inputSchema: { symbol: symbol.optional() },
+  },
+  ({ symbol }) => jsonTool(() => apiGet("/alerts", { symbol })),
+);
+
+server.registerTool(
+  "delete_alert",
+  {
+    title: "Delete a price alert",
+    description: "Remove a price alert by id (from create_alert or list_alerts).",
+    inputSchema: { id: z.number().int().describe("Alert id") },
+  },
+  ({ id }) => jsonTool(() => apiDelete(`/alerts/${id}`)),
 );
 
 async function main() {
