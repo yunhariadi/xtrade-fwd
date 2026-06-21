@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { AlertMonitor } from "./alert-monitor";
 import type { AlertStore } from "./alert-store";
 import type { WsServer } from "../market-data/ws-server";
@@ -142,5 +142,53 @@ describe("AlertMonitor — crossing detection", () => {
     await monitor.onPrice("BTCUSDT", 99);
     await monitor.onPrice("BTCUSDT", 101);
     expect(sent).toHaveLength(0);
+  });
+});
+
+describe("AlertMonitor — outbound webhook", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("POSTs the fired alert to the configured webhook with the secret header", async () => {
+    const s = makeStore([makeAlert({ id: 9, direction: "above", targetPrice: 100 })]);
+    const w = makeWsServer();
+    const monitor = new AlertMonitor({
+      store: s.store,
+      wsServer: w.wsServer,
+      webhook: { url: "https://hermes.example.com/hooks/price-alert", secret: "shh" },
+    });
+    await monitor.reload();
+    await monitor.onPrice("BTCUSDT", 99);
+    await monitor.onPrice("BTCUSDT", 101); // crosses → fires
+    // Fire-and-forget: let the microtask running the POST settle.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://hermes.example.com/hooks/price-alert");
+    expect(init.method).toBe("POST");
+    expect(init.headers["x-webhook-secret"]).toBe("shh");
+    const body = JSON.parse(init.body);
+    expect(body.event).toBe("alert:triggered");
+    expect(body.data.id).toBe(9);
+    expect(body.data.triggeredPrice).toBe(101);
+  });
+
+  it("does not POST anything when no webhook is configured", async () => {
+    const s = makeStore([makeAlert({ direction: "above", targetPrice: 100 })]);
+    const w = makeWsServer();
+    const monitor = new AlertMonitor({ store: s.store, wsServer: w.wsServer });
+    await monitor.reload();
+    await monitor.onPrice("BTCUSDT", 99);
+    await monitor.onPrice("BTCUSDT", 101);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

@@ -99,9 +99,14 @@ export class MarketDataService {
       pool: options.pool,
       exchange: this.exchange,
     });
+    const webhookUrl = process.env.ALERT_WEBHOOK_URL?.trim();
     this.alertMonitor = new AlertMonitor({
       store: this.alertStore,
       wsServer: this.wsServer,
+      logger: options.fastify.log,
+      webhook: webhookUrl
+        ? { url: webhookUrl, secret: process.env.ALERT_WEBHOOK_SECRET?.trim() || undefined }
+        : undefined,
     });
   }
 

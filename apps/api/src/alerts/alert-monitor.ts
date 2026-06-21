@@ -1,11 +1,16 @@
 import type { WsAlertTriggeredMessage } from "@ict-forward-lab/core";
+import type { FastifyBaseLogger } from "fastify";
 import type { WsServer } from "../market-data/ws-server";
 import type { AlertStore } from "./alert-store";
 import type { PriceAlert } from "./types";
+import { postAlertWebhook, type AlertWebhookConfig } from "./alert-webhook";
 
 interface AlertMonitorOptions {
   store: AlertStore;
   wsServer: WsServer;
+  /** When set, fired alerts are also POSTed to this endpoint (e.g. Hermes). */
+  webhook?: AlertWebhookConfig;
+  logger?: FastifyBaseLogger;
 }
 
 /**
@@ -20,6 +25,8 @@ interface AlertMonitorOptions {
 export class AlertMonitor {
   private store: AlertStore;
   private wsServer: WsServer;
+  private webhook?: AlertWebhookConfig;
+  private logger?: FastifyBaseLogger;
   /** Active alerts, keyed by id. The durable copy lives in Postgres. */
   private active = new Map<number, PriceAlert>();
   /** Last seen price per symbol (uppercased), to detect crossings. */
@@ -28,6 +35,8 @@ export class AlertMonitor {
   constructor(options: AlertMonitorOptions) {
     this.store = options.store;
     this.wsServer = options.wsServer;
+    this.webhook = options.webhook;
+    this.logger = options.logger;
   }
 
   /** Load active alerts from the store into the in-memory cache. */
@@ -75,6 +84,12 @@ export class AlertMonitor {
         },
       };
       this.wsServer.broadcastAlert(message);
+
+      // Cross-VPS push to an external consumer (e.g. Hermes). Fire-and-forget:
+      // never await, so a slow/down receiver can't stall price evaluation.
+      if (this.webhook) {
+        void postAlertWebhook(this.webhook, message, this.logger);
+      }
     }
   }
 }

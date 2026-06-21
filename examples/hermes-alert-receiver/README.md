@@ -1,0 +1,97 @@
+# Hermes alert receiver
+
+A minimal, zero-dependency reference for receiving `ict-forward-lab` price-alert
+webhooks on the Hermes VPS. When a price alert fires, the API
+(`apps/api`) POSTs an `alert:triggered` payload to a URL you configure; this
+service is the other end of that push.
+
+## How it fits together
+
+```
+Hermes ──POST /api/alerts (x-api-key)──▶  ict-forward-lab API
+                                              │  (price crosses target)
+                                              ▼
+Hermes receiver  ◀──POST /hooks/price-alert──  AlertMonitor webhook
+   (this script)     (x-webhook-secret)
+```
+
+Hermes still *creates* alerts via the REST API. This receiver only handles the
+*notification* when one is touched — so the agent gets a direct push instead of
+listening on the WebSocket or polling.
+
+## Run it
+
+```bash
+ALERT_WEBHOOK_SECRET=your-long-random-secret PORT=8088 node server.mjs
+```
+
+| Env var | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `8088` | Port to listen on |
+| `ALERT_WEBHOOK_PATH` | `/hooks/price-alert` | Path that accepts the POST |
+| `ALERT_WEBHOOK_SECRET` | _(empty)_ | Shared secret; must match the API side |
+
+> Put TLS in front (Caddy/nginx) so the secret isn't sent in clear, and run it
+> under a supervisor (pm2/systemd) so it restarts on crash.
+
+## Configure the API side
+
+On the API VPS `.env`:
+
+```
+ALERT_WEBHOOK_URL=https://<hermes-host>/hooks/price-alert
+ALERT_WEBHOOK_SECRET=your-long-random-secret
+```
+
+Then rebuild the api container:
+
+```bash
+docker compose --profile app up -d --build api
+```
+
+## Payload
+
+The body is identical to the `alert:triggered` WebSocket message:
+
+```json
+{
+  "event": "alert:triggered",
+  "data": {
+    "id": 9,
+    "symbol": "BTCUSDT",
+    "direction": "above",
+    "targetPrice": 70000,
+    "triggeredPrice": 70004.5,
+    "triggeredAt": "2026-06-21T09:30:00.000Z",
+    "note": null
+  }
+}
+```
+
+The request carries `x-webhook-secret`; the receiver rejects any POST whose
+header doesn't match (constant-time compare). Respond `2xx` to ack — a non-2xx
+or timeout makes the API retry (2 retries, ~5s timeout each).
+
+## Make it do something
+
+Edit `handleAlert(alert)` in `server.mjs` — that's the single hand-off point.
+Enqueue a task for the agent, call Hermes' internal API, send a DM, etc.
+
+## Smoke test
+
+```bash
+# start it
+ALERT_WEBHOOK_SECRET=test PORT=8088 node server.mjs &
+
+# simulate the API's POST
+curl -s -X POST http://127.0.0.1:8088/hooks/price-alert \
+  -H "content-type: application/json" \
+  -H "x-webhook-secret: test" \
+  -d '{"event":"alert:triggered","data":{"id":1,"symbol":"BTCUSDT","direction":"above","targetPrice":70000,"triggeredPrice":70004.5,"triggeredAt":"2026-06-21T09:30:00.000Z","note":null}}'
+# → {"ok":true}, and the receiver logs the alert
+
+# wrong secret → 401
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://127.0.0.1:8088/hooks/price-alert \
+  -H "content-type: application/json" -H "x-webhook-secret: nope" -d '{}'
+# → 401
+```
