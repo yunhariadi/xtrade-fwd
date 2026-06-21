@@ -52,6 +52,19 @@ async function apiPost(path: string, payload: unknown): Promise<unknown> {
   return body ? JSON.parse(body) : null;
 }
 
+/** PATCH `/api{path}` with a JSON body; returns parsed JSON or throws. */
+async function apiPatch(path: string, payload: unknown): Promise<unknown> {
+  const url = `${API_BASE_URL}/api${path}`;
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: { ...headers(), "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const body = await res.text();
+  if (!res.ok) throw new Error(`PATCH ${path} → ${res.status}: ${body}`);
+  return body ? JSON.parse(body) : null;
+}
+
 /** DELETE `/api{path}`; returns parsed JSON or throws. */
 async function apiDelete(path: string): Promise<unknown> {
   const url = `${API_BASE_URL}/api${path}`;
@@ -332,6 +345,27 @@ server.registerTool(
     inputSchema: { symbol: symbol.optional() },
   },
   ({ symbol }) => jsonTool(() => apiGet("/alerts", { symbol })),
+);
+
+server.registerTool(
+  "update_alert",
+  {
+    title: "Update a price alert",
+    description:
+      "Modify an existing alert in place by id (keeps the same id). Pass only the fields to change — " +
+      "e.g. change direction, move targetPrice, toggle repeat, edit note, or set status to " +
+      "disabled/active. Use this instead of delete+create when adjusting an alert.",
+    inputSchema: {
+      id: z.number().int().describe("Alert id"),
+      direction: alertDirection.optional(),
+      targetPrice: z.number().positive().optional().describe("New price level"),
+      repeat: z.boolean().optional().describe("Re-arm after firing instead of one-shot"),
+      note: z.string().optional().describe("Free-text note"),
+      status: z.enum(["active", "triggered", "disabled"]).optional().describe("active to arm, disabled to pause"),
+    },
+  },
+  ({ id, direction, targetPrice, repeat, note, status }) =>
+    jsonTool(() => apiPatch(`/alerts/${id}`, { direction, targetPrice, repeat, note, status })),
 );
 
 server.registerTool(
