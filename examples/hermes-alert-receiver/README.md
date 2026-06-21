@@ -30,9 +30,35 @@ ALERT_WEBHOOK_SECRET=your-long-random-secret PORT=8088 node server.mjs
 | `PORT` | `8088` | Port to listen on |
 | `ALERT_WEBHOOK_PATH` | `/hooks/price-alert` | Path that accepts the POST |
 | `ALERT_WEBHOOK_SECRET` | _(empty)_ | Shared secret; must match the API side |
+| `TELEGRAM_BOT_TOKEN` | _(empty)_ | Bot token; set with chat id to message Telegram (see TELEGRAM.md) |
+| `TELEGRAM_CHAT_ID` | _(empty)_ | Target chat for Telegram delivery |
+| `AGENT_WEBHOOK_URL` | _(empty)_ | If set, forward each fired alert here (e.g. the agent's TradingView inbox) |
+| `AGENT_WEBHOOK_SECRET` | _(empty)_ | Optional; sent as `x-webhook-secret` on the agent forward |
 
 > Put TLS in front (Caddy/nginx) so the secret isn't sent in clear, and run it
 > under a supervisor (pm2/systemd) so it restarts on crash.
+
+On each fired alert the receiver fans out: logs it, sends the Telegram message
+(if configured), and POSTs to `AGENT_WEBHOOK_URL` (if set). The agent-forward
+body is:
+
+```json
+{
+  "source": "ict-forward-lab",
+  "type": "price_alert",
+  "symbol": "BTCUSDT",
+  "direction": "above",
+  "targetPrice": 70000,
+  "price": 70004.5,
+  "time": "2026-06-21T09:30:00.000Z",
+  "note": null,
+  "message": "Price alert: BTCUSDT above 70000 touched @ 70004.5 (...)"
+}
+```
+
+`message` is a ready-to-read line; structured fields are alongside it. If your
+agent's webhook expects a different shape, adjust `forwardToAgent()` in
+`server.mjs`.
 
 ## Configure the API side
 

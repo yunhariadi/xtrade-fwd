@@ -26,11 +26,19 @@ const MAX_BODY = 64 * 1024; // alerts are tiny; reject anything suspicious.
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID ?? "";
 
+// Optional forward to an agent's webhook (e.g. the same endpoint that ingests
+// TradingView alerts) so the agent can reason over a touched price level.
+const AGENT_WEBHOOK_URL = process.env.AGENT_WEBHOOK_URL ?? "";
+const AGENT_WEBHOOK_SECRET = process.env.AGENT_WEBHOOK_SECRET ?? "";
+
 if (!SECRET) {
   console.warn("[receiver] ALERT_WEBHOOK_SECRET is empty — every POST will be accepted. Set it in production.");
 }
 if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
   console.log("[receiver] Telegram delivery enabled");
+}
+if (AGENT_WEBHOOK_URL) {
+  console.log(`[receiver] Agent forward enabled → ${AGENT_WEBHOOK_URL}`);
 }
 
 /** Escape the few characters Telegram HTML parse_mode treats specially. */
@@ -73,6 +81,47 @@ function secretMatches(provided) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+/** Forward the fired alert to an agent's webhook (e.g. Hermes' TradingView inbox). */
+async function forwardToAgent(alert) {
+  if (!AGENT_WEBHOOK_URL) return;
+  const message =
+    `Price alert: ${alert.symbol} ${alert.direction} ${alert.targetPrice} ` +
+    `touched @ ${alert.triggeredPrice} (${alert.triggeredAt})` +
+    (alert.note ? ` — ${alert.note}` : "");
+  // Structured fields + a ready-to-read `message`, so the consumer can use either.
+  const payload = {
+    source: "ict-forward-lab",
+    type: "price_alert",
+    symbol: alert.symbol,
+    direction: alert.direction,
+    targetPrice: alert.targetPrice,
+    price: alert.triggeredPrice,
+    time: alert.triggeredAt,
+    note: alert.note,
+    message,
+  };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(AGENT_WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...(AGENT_WEBHOOK_SECRET ? { "x-webhook-secret": AGENT_WEBHOOK_SECRET } : {}),
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      console.error(`[receiver] agent forward failed: HTTP ${res.status} ${await res.text()}`);
+    }
+  } catch (err) {
+    console.error(`[receiver] agent forward error: ${err.message}`);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** This is where you hand the alert off to Hermes. */
 async function handleAlert(alert) {
   // alert = { id, symbol, direction, targetPrice, triggeredPrice, triggeredAt, note }
@@ -90,9 +139,10 @@ async function handleAlert(alert) {
     `touched @ <code>${escapeHtml(alert.triggeredPrice)}</code>\n` +
     `<i>${escapeHtml(alert.triggeredAt)}</i>` +
     (alert.note ? `\n📝 ${escapeHtml(alert.note)}` : "");
-  await sendTelegram(text);
 
-  // Add other hand-offs here too (enqueue a task, call Hermes' internal API, …).
+  // Fan out: Telegram message + agent webhook. allSettled so one failing path
+  // never blocks the other; both are best-effort with their own timeouts.
+  await Promise.allSettled([sendTelegram(text), forwardToAgent(alert)]);
 }
 
 const server = createServer((req, res) => {
