@@ -70,7 +70,8 @@
       "Bash(pnpm --filter \"@ict-forward-lab/api\" typecheck)",
       "Bash(pnpm --filter \"@ict-forward-lab/api\" test)",
       "Bash(pnpm --filter @ict-forward-lab/api typecheck)",
-      "Bash(pnpm --filter @ict-forward-lab/api test)"
+      "Bash(pnpm --filter @ict-forward-lab/api test)",
+      "Bash(pnpm --filter @ict-forward-lab/api lint)"
     ]
   }
 }
