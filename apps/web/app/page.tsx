@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CandlestickChart } from "../components/chart/CandlestickChart";
 import { TimeframeSelector } from "../components/chart/TimeframeSelector";
 import { IndicatorSettings, IndicatorConfig } from "../components/chart/IndicatorSettings";
 import { SignalPanel } from "../components/chart/SignalPanel";
 import { TradePanel } from "../components/chart/TradePanel";
+import { AlertPanel } from "../components/chart/AlertPanel";
 import { useSignalWebSocket } from "../hooks/useSignalWebSocket";
 import { useTradeWebSocket } from "../hooks/useTradeWebSocket";
+import { useAlertWebSocket } from "../hooks/useAlertWebSocket";
 
 export default function HomePage() {
   const [timeframe, setTimeframe] = useState("5m");
@@ -21,13 +23,23 @@ export default function HomePage() {
     showVP: false,
   });
 
-  const [sidebarTab, setSidebarTab] = useState<"signals" | "trades">("signals");
+  const [sidebarTab, setSidebarTab] = useState<"signals" | "trades" | "alerts">("signals");
   // Unix-seconds head of the chart's bar replay; null when replay is off. Drives
   // the confluence checklist to evaluate as of the playback head.
   const [replayTime, setReplayTime] = useState<number | null>(null);
   const { signals } = useSignalWebSocket({ symbol: "BTCUSDT" });
 
   const { activeTrades, recentTrades, balance } = useTradeWebSocket();
+
+  const { alerts, lastTriggered, dismissTriggered, createAlert, deleteAlert } =
+    useAlertWebSocket({ symbol: "BTCUSDT" });
+
+  // Auto-dismiss the trigger toast after a few seconds.
+  useEffect(() => {
+    if (!lastTriggered) return;
+    const id = setTimeout(dismissTriggered, 8000);
+    return () => clearTimeout(id);
+  }, [lastTriggered, dismissTriggered]);
 
   return (
     <main className="h-screen w-screen flex flex-col">
@@ -54,6 +66,7 @@ export default function HomePage() {
             symbol="BTCUSDT"
             timeframe={timeframe}
             indicators={indicators}
+            alerts={alerts}
             onReplayTimeChange={setReplayTime}
           />
 
@@ -73,16 +86,60 @@ export default function HomePage() {
             >
               Trades
             </button>
+            <button
+              onClick={() => setSidebarTab("alerts")}
+              className={`flex-1 px-3 py-2 text-xs font-semibold uppercase ${sidebarTab === "alerts" ? "text-gray-200 border-b-2 border-blue-500" : "text-gray-500"}`}
+            >
+              Alerts
+            </button>
           </div>
           {/* Tab content */}
           {sidebarTab === "signals" ? (
             <SignalPanel signals={signals} symbol="BTCUSDT" replayTime={replayTime} />
-          ) : (
-
+          ) : sidebarTab === "trades" ? (
             <TradePanel activeTrades={activeTrades} recentTrades={recentTrades} balance={balance} />
+          ) : (
+            <AlertPanel
+              alerts={alerts}
+              symbol="BTCUSDT"
+              onCreate={createAlert}
+              onDelete={deleteAlert}
+            />
           )}
         </aside>
       </div>
+
+      {/* Alert-triggered toast */}
+      {lastTriggered && (
+        <div className="fixed bottom-4 right-4 z-50 max-w-xs rounded-lg border border-amber-500/60 bg-gray-900/95 px-4 py-3 shadow-lg">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm font-semibold text-amber-400">
+                🔔 Price alert
+              </div>
+              <div className="mt-0.5 text-xs text-gray-300 tabular-nums">
+                {lastTriggered.symbol} crossed{" "}
+                {lastTriggered.direction === "above"
+                  ? "above"
+                  : lastTriggered.direction === "below"
+                    ? "below"
+                    : "through"}{" "}
+                {lastTriggered.targetPrice} (@ {lastTriggered.triggeredPrice})
+              </div>
+              {lastTriggered.note && (
+                <div className="mt-0.5 text-xs text-gray-500">{lastTriggered.note}</div>
+              )}
+            </div>
+            <button
+              onClick={dismissTriggered}
+              className="shrink-0 text-gray-500 hover:text-gray-300"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

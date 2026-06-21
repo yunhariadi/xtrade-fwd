@@ -38,6 +38,21 @@ export type WsFvgMessage =
   | WsFvgMitigatedMessage
   | WsFvgTouchedMessage;
 
+export type PriceAlertDirection = "above" | "below" | "cross";
+
+export interface WsAlertTriggeredMessage {
+  event: "alert:triggered";
+  data: {
+    id: number;
+    symbol: string;
+    direction: PriceAlertDirection;
+    targetPrice: number;
+    triggeredPrice: number;
+    triggeredAt: string;
+    note: string | null;
+  };
+}
+
 
 export interface WsCandleMessage {
   event: WsEventType;

@@ -3,11 +3,14 @@ import type { FastifyInstance } from "fastify";
 import { MarketDataService } from "../market-data/market-data-service";
 import type { FvgTracker } from "../fvg/fvg-tracker";
 import type { StrategyRunner } from "../strategy/strategy-runner";
+import type { AlertStore, AlertMonitor } from "../alerts";
 
 declare module "fastify" {
   interface FastifyInstance {
     fvgTracker: FvgTracker;
     strategyRunner: StrategyRunner;
+    alertStore: AlertStore;
+    alertMonitor: AlertMonitor;
   }
 }
 
@@ -35,6 +38,10 @@ export const marketDataPlugin = fp(async (fastify: FastifyInstance) => {
 
   // Decorate Fastify with strategyRunner for use in routes
   fastify.decorate("strategyRunner", marketDataService.getStrategyRunner());
+
+  // Decorate Fastify with alert store + monitor for the alerts routes
+  fastify.decorate("alertStore", marketDataService.getAlertStore());
+  fastify.decorate("alertMonitor", marketDataService.getAlertMonitor());
 
   // Connect to Binance WS after server is ready, stop on close
   fastify.addHook("onReady", async () => {

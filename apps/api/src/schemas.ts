@@ -274,3 +274,68 @@ export const backtestResultByIdSchema = {
     properties: { id: { type: "string" } },
   },
 } as const;
+
+const alertDirection = {
+  type: "string",
+  enum: ["above", "below", "cross"],
+  description:
+    "Crossing direction: `above` fires when price crosses up through the target, `below` when it crosses down, `cross` for either.",
+} as const;
+
+export const listAlertsSchema = {
+  tags: ["alerts"],
+  summary: "List price alerts",
+  description: "Price-cross alerts for the active market source, newest first.",
+  querystring: {
+    type: "object",
+    properties: { symbol },
+  },
+} as const;
+
+export const createAlertSchema = {
+  tags: ["alerts"],
+  summary: "Create a price-cross alert",
+  description:
+    "Arms an alert that fires once (or repeatedly when `repeat` is true) when the live price crosses `targetPrice` in `direction`.",
+  body: {
+    type: "object",
+    required: ["symbol", "direction", "targetPrice"],
+    properties: {
+      symbol,
+      direction: alertDirection,
+      targetPrice: { type: "number", description: "Price level to watch" },
+      repeat: { type: "boolean", description: "Re-arm after firing (default false)" },
+      note: { type: "string", description: "Optional label shown when the alert fires" },
+    },
+  },
+} as const;
+
+export const updateAlertSchema = {
+  tags: ["alerts"],
+  summary: "Update a price alert (edit, enable/disable, re-arm)",
+  params: {
+    type: "object",
+    required: ["id"],
+    properties: { id: { type: "string" } },
+  },
+  body: {
+    type: "object",
+    properties: {
+      direction: alertDirection,
+      targetPrice: { type: "number" },
+      status: { type: "string", enum: ["active", "triggered", "disabled"] },
+      repeat: { type: "boolean" },
+      note: { type: "string" },
+    },
+  },
+} as const;
+
+export const deleteAlertSchema = {
+  tags: ["alerts"],
+  summary: "Delete a price alert",
+  params: {
+    type: "object",
+    required: ["id"],
+    properties: { id: { type: "string" } },
+  },
+} as const;

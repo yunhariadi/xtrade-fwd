@@ -11,6 +11,7 @@ import { CandleStore } from "./candle-store";
 import { WsServer } from "./ws-server";
 import { FvgTracker } from "../fvg/fvg-tracker";
 import { StrategyRunner } from "../strategy/strategy-runner";
+import { AlertStore, AlertMonitor } from "../alerts";
 import { setWsServer } from "./get-ws-server";
 
 interface SourceClient {
@@ -40,6 +41,8 @@ export class MarketDataService {
   private wsServer: WsServer;
   private fvgTracker: FvgTracker;
   private strategyRunner: StrategyRunner;
+  private alertStore: AlertStore;
+  private alertMonitor: AlertMonitor;
 
   constructor(private options: MarketDataServiceOptions) {
     this.source = getMarketSource();
@@ -91,6 +94,15 @@ export class MarketDataService {
       wsServer: this.wsServer,
       symbol: options.symbol,
     });
+
+    this.alertStore = new AlertStore({
+      pool: options.pool,
+      exchange: this.exchange,
+    });
+    this.alertMonitor = new AlertMonitor({
+      store: this.alertStore,
+      wsServer: this.wsServer,
+    });
   }
 
   async start(): Promise<void> {
@@ -137,6 +149,9 @@ export class MarketDataService {
       }
     }
 
+    // Warm the alert monitor's cache with any active alerts from a prior run.
+    await this.alertMonitor.reload();
+
     this.options.fastify.log.info("MarketDataService started");
   }
 
@@ -151,6 +166,14 @@ export class MarketDataService {
 
   getStrategyRunner(): StrategyRunner {
     return this.strategyRunner;
+  }
+
+  getAlertStore(): AlertStore {
+    return this.alertStore;
+  }
+
+  getAlertMonitor(): AlertMonitor {
+    return this.alertMonitor;
   }
 
   private setupEventHandlers(): void {
@@ -184,6 +207,10 @@ export class MarketDataService {
 
   private async processCandle(result: NormalizationResult): Promise<void> {
     const { candle, symbol, timeframe } = result;
+
+    // Feed the latest price to the alert monitor on every tick (open + closed
+    // candles both carry a fresh close), so price-cross alerts fire intra-bar.
+    void this.alertMonitor.onPrice(symbol, candle.close);
 
     if (candle.isClosed) {
       await this.candleStore.persist(candle, symbol, timeframe);

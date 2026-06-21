@@ -68,7 +68,9 @@
       "Bash(SITE_ADDRESS=lab.example.com docker compose --profile app config)",
       "Bash(git restore *)",
       "Bash(pnpm --filter \"@ict-forward-lab/api\" typecheck)",
-      "Bash(pnpm --filter \"@ict-forward-lab/api\" test)"
+      "Bash(pnpm --filter \"@ict-forward-lab/api\" test)",
+      "Bash(pnpm --filter @ict-forward-lab/api typecheck)",
+      "Bash(pnpm --filter @ict-forward-lab/api test)"
     ]
   }
 }

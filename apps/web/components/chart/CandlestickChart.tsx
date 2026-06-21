@@ -23,8 +23,10 @@ import { KillzoneOverlay } from "./KillzoneOverlay";
 import { BosOverlay } from "./BosOverlay";
 import { VolumeProfileOverlay } from "./VolumeProfileOverlay";
 
+import { AlertOverlay } from "./AlertOverlay";
 import { BarReplayControls, type ReplaySpeed } from "./BarReplayControls";
 import type { IndicatorConfig } from "./IndicatorSettings";
+import type { PriceAlert } from "../../hooks/useAlertWebSocket";
 
 
 
@@ -32,6 +34,8 @@ interface CandlestickChartProps {
   symbol: string;
   timeframe: string;
   indicators?: IndicatorConfig;
+  /** Active price alerts to draw as horizontal lines on the series. */
+  alerts?: PriceAlert[];
   /**
    * Fired whenever the bar-replay playback head moves. Emits the Unix-seconds
    * timestamp at the head, or null when replay is off. Lets sibling panels
@@ -73,7 +77,7 @@ function formatCountdown(sec: number): string {
 }
 
 
-export function CandlestickChart({ symbol, timeframe, indicators, onReplayTimeChange }: CandlestickChartProps) {
+export function CandlestickChart({ symbol, timeframe, indicators, alerts, onReplayTimeChange }: CandlestickChartProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -380,6 +384,7 @@ export function CandlestickChart({ symbol, timeframe, indicators, onReplayTimeCh
 
         {chartReady && (
           <>
+            <AlertOverlay series={seriesRef.current} alerts={alerts ?? []} />
             {indicators?.showFvg !== false && (
               <FvgOverlay chart={chartRef.current} series={seriesRef.current} zones={zones} symbol={symbol} timeframe={timeframe} replayTime={replayTime} />
             )}

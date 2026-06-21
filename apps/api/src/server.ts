@@ -17,6 +17,7 @@ import { orderBlockRoutes } from "./routes/order-blocks";
 import { structureRoutes } from "./routes/structure";
 import { decisionPacketRoutes } from "./routes/decision-packet";
 import { calibrationRoutes } from "./routes/calibration";
+import { alertRoutes } from "./routes/alerts";
 
 
 const app = Fastify({ logger: true });
@@ -42,6 +43,7 @@ app.register(orderBlockRoutes, { prefix: "/api" });
 app.register(structureRoutes, { prefix: "/api" });
 app.register(decisionPacketRoutes, { prefix: "/api" });
 app.register(calibrationRoutes, { prefix: "/api" });
+app.register(alertRoutes, { prefix: "/api" });
 
 // Graceful shutdown
 
