@@ -72,6 +72,28 @@ The request carries `x-webhook-secret`; the receiver rejects any POST whose
 header doesn't match (constant-time compare). Respond `2xx` to ack — a non-2xx
 or timeout makes the API retry (2 retries, ~5s timeout each).
 
+## Run it as a service (systemd)
+
+So it survives reboots/logout and restarts on crash. `alert-receiver.service`
+ships in this folder; it reads config from `/etc/alert-receiver.env` so the
+secret never lives in git.
+
+```bash
+# 1. config + secret (kept out of git, root-only)
+printf 'PORT=8088\nALERT_WEBHOOK_SECRET=your-secret\n' | sudo tee /etc/alert-receiver.env
+sudo chmod 600 /etc/alert-receiver.env
+
+# 2. install the unit (assumes server.mjs copied to /root/alert-receiver.mjs and
+#    node at /root/.local/bin/node — edit the unit's ExecStart if yours differ)
+sudo cp alert-receiver.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now alert-receiver
+sudo systemctl status alert-receiver --no-pager
+```
+
+Logs: `journalctl -u alert-receiver -f`. After editing `handleAlert`, run
+`sudo systemctl restart alert-receiver`.
+
 ## Make it do something
 
 Edit `handleAlert(alert)` in `server.mjs` — that's the single hand-off point.

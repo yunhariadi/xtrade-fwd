@@ -1,0 +1,15 @@
+[Unit]
+Description=ict-forward-lab alert webhook receiver
+After=network.target
+
+[Service]
+# Secrets/config live here (not in git). Create it on the host — see README.
+EnvironmentFile=/etc/alert-receiver.env
+# Adjust the node path if `which node` differs on your host.
+ExecStart=/root/.local/bin/node /root/alert-receiver.mjs
+Restart=always
+RestartSec=2
+User=root
+
+[Install]
+WantedBy=multi-user.target
