@@ -81,35 +81,27 @@ function secretMatches(provided) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** Forward the fired alert to an agent's webhook (e.g. Hermes' TradingView inbox). */
+/**
+ * Forward the fired alert to an agent's webhook (e.g. Hermes' /tv-signal inbox).
+ * Sends CLEAN PLAIN TEXT in the same style as TradingView plain-text alerts —
+ * the real price is already resolved, so there are never `{{placeholder}}` tokens.
+ */
 async function forwardToAgent(alert) {
   if (!AGENT_WEBHOOK_URL) return;
-  const message =
-    `Price alert: ${alert.symbol} ${alert.direction} ${alert.targetPrice} ` +
-    `touched @ ${alert.triggeredPrice} (${alert.triggeredAt})` +
+  const text =
+    `ICT: Price alert on ${alert.symbol} @ ${alert.triggeredPrice} ` +
+    `(crossed ${alert.direction} ${alert.targetPrice})` +
     (alert.note ? ` — ${alert.note}` : "");
-  // Structured fields + a ready-to-read `message`, so the consumer can use either.
-  const payload = {
-    source: "ict-forward-lab",
-    type: "price_alert",
-    symbol: alert.symbol,
-    direction: alert.direction,
-    targetPrice: alert.targetPrice,
-    price: alert.triggeredPrice,
-    time: alert.triggeredAt,
-    note: alert.note,
-    message,
-  };
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
   try {
     const res = await fetch(AGENT_WEBHOOK_URL, {
       method: "POST",
       headers: {
-        "content-type": "application/json",
+        "content-type": "text/plain; charset=utf-8",
         ...(AGENT_WEBHOOK_SECRET ? { "x-webhook-secret": AGENT_WEBHOOK_SECRET } : {}),
       },
-      body: JSON.stringify(payload),
+      body: text,
       signal: controller.signal,
     });
     if (!res.ok) {
