@@ -21,8 +21,48 @@ const PATHNAME = process.env.ALERT_WEBHOOK_PATH ?? "/hooks/price-alert";
 const SECRET = process.env.ALERT_WEBHOOK_SECRET ?? "";
 const MAX_BODY = 64 * 1024; // alerts are tiny; reject anything suspicious.
 
+// Optional Telegram delivery. Set both to forward alerts to a chat; leave either
+// empty to disable (the receiver still logs every alert).
+const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID ?? "";
+
 if (!SECRET) {
   console.warn("[receiver] ALERT_WEBHOOK_SECRET is empty — every POST will be accepted. Set it in production.");
+}
+if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
+  console.log("[receiver] Telegram delivery enabled");
+}
+
+/** Escape the few characters Telegram HTML parse_mode treats specially. */
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Send a message to Telegram. No-op if not configured. */
+async function sendTelegram(text) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        text,
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      console.error(`[receiver] Telegram send failed: HTTP ${res.status} ${await res.text()}`);
+    }
+  } catch (err) {
+    console.error(`[receiver] Telegram send error: ${err.message}`);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Constant-time string compare that won't throw on length mismatch. */
@@ -33,7 +73,7 @@ function secretMatches(provided) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-/** This is where you hand the alert off to Hermes. Replace with your logic. */
+/** This is where you hand the alert off to Hermes. */
 async function handleAlert(alert) {
   // alert = { id, symbol, direction, targetPrice, triggeredPrice, triggeredAt, note }
   console.log(
@@ -41,7 +81,18 @@ async function handleAlert(alert) {
       `target ${alert.targetPrice} touched @ ${alert.triggeredPrice} (${alert.triggeredAt})` +
       (alert.note ? ` — ${alert.note}` : ""),
   );
-  // e.g. enqueue a task for the agent, call Hermes' internal API, send a DM, etc.
+
+  const arrow = alert.direction === "below" ? "🔻" : alert.direction === "above" ? "🔺" : "🔔";
+  const text =
+    `${arrow} <b>Price alert</b>\n` +
+    `<b>${escapeHtml(alert.symbol)}</b> ${escapeHtml(alert.direction)} ` +
+    `<code>${escapeHtml(alert.targetPrice)}</code>\n` +
+    `touched @ <code>${escapeHtml(alert.triggeredPrice)}</code>\n` +
+    `<i>${escapeHtml(alert.triggeredAt)}</i>` +
+    (alert.note ? `\n📝 ${escapeHtml(alert.note)}` : "");
+  await sendTelegram(text);
+
+  // Add other hand-offs here too (enqueue a task, call Hermes' internal API, …).
 }
 
 const server = createServer((req, res) => {
