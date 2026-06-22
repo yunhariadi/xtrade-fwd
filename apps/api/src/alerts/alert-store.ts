@@ -2,9 +2,11 @@ import type { Pool } from "pg";
 import {
   dbRowToAlert,
   type CreatePriceAlertInput,
+  type CreateIndicatorAlertInput,
   type PriceAlert,
   type UpdatePriceAlertInput,
 } from "./types";
+import type { ResolvedIndicatorTarget } from "./indicator-resolver";
 
 export interface AlertStoreOptions {
   pool: Pool;
@@ -21,14 +23,47 @@ export class AlertStore {
 
   async create(input: CreatePriceAlertInput): Promise<PriceAlert> {
     const result = await this.options.pool.query(
-      `INSERT INTO price_alerts (exchange, symbol, direction, target_price, repeat, note)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO price_alerts
+         (exchange, symbol, kind, target_kind, direction, target_price, repeat, note)
+       VALUES ($1, $2, 'price', 'level', $3, $4, $5, $6)
        RETURNING *`,
       [
         this.options.exchange,
         input.symbol.toUpperCase(),
         input.direction,
         input.targetPrice,
+        input.repeat ?? false,
+        input.note ?? null,
+      ],
+    );
+    return dbRowToAlert(result.rows[0]);
+  }
+
+  /** Persist an indicator alert from its create-time snapshotted target. */
+  async createIndicator(
+    input: CreateIndicatorAlertInput,
+    resolved: ResolvedIndicatorTarget,
+  ): Promise<PriceAlert> {
+    const result = await this.options.pool.query(
+      `INSERT INTO price_alerts
+         (exchange, symbol, kind, target_kind, direction, target_price,
+          price_low, price_high, trigger, indicator_kind, indicator_id,
+          indicator_direction, timeframe, repeat, note)
+       VALUES ($1, $2, 'indicator', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       RETURNING *`,
+      [
+        this.options.exchange,
+        input.symbol.toUpperCase(),
+        resolved.targetKind,
+        resolved.direction,
+        resolved.targetPrice,
+        resolved.priceLow,
+        resolved.priceHigh,
+        resolved.trigger,
+        input.indicatorKind,
+        input.indicatorId,
+        resolved.indicatorDirection,
+        input.timeframe,
         input.repeat ?? false,
         input.note ?? null,
       ],

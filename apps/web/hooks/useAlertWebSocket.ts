@@ -6,13 +6,27 @@ const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:3001/ws";
 
 export type AlertDirection = "above" | "below" | "cross";
 export type AlertStatus = "active" | "triggered" | "disabled";
+export type AlertKind = "price" | "indicator";
+export type AlertTargetKind = "level" | "zone";
+export type AlertTrigger = "touch" | "cross";
+export type IndicatorKind = "fvg" | "ob" | "liquidity" | "bos";
 
 export interface PriceAlert {
   id: number;
   exchange: string;
   symbol: string;
+  kind: AlertKind;
+  targetKind: AlertTargetKind;
   direction: AlertDirection;
-  targetPrice: number;
+  /** Null for zone (indicator) alerts, which use priceLow/priceHigh. */
+  targetPrice: number | null;
+  priceLow: number | null;
+  priceHigh: number | null;
+  trigger: AlertTrigger | null;
+  indicatorKind: IndicatorKind | null;
+  indicatorId: string | null;
+  indicatorDirection: string | null;
+  timeframe: string | null;
   status: AlertStatus;
   repeat: boolean;
   note: string | null;
@@ -26,16 +40,35 @@ export interface TriggeredAlert {
   id: number;
   symbol: string;
   direction: AlertDirection;
-  targetPrice: number;
+  targetPrice: number | null;
   triggeredPrice: number;
   triggeredAt: string;
   note: string | null;
+  kind?: AlertKind;
+  targetKind?: AlertTargetKind;
+  trigger?: AlertTrigger;
+  priceLow?: number | null;
+  priceHigh?: number | null;
+  indicatorKind?: IndicatorKind | null;
+  indicatorId?: string | null;
+  indicatorDirection?: string | null;
+  timeframe?: string | null;
 }
 
 export interface CreateAlertInput {
   symbol: string;
   direction: AlertDirection;
   targetPrice: number;
+  repeat?: boolean;
+  note?: string;
+}
+
+export interface CreateIndicatorAlertInput {
+  symbol: string;
+  timeframe: string;
+  indicatorKind: IndicatorKind;
+  indicatorId: string;
+  trigger?: AlertTrigger;
   repeat?: boolean;
   note?: string;
 }
@@ -82,6 +115,9 @@ export function useAlertWebSocket({ symbol }: UseAlertWebSocketOptions) {
             // The fired alert changed server-side (triggered/re-armed); resync.
             void refresh();
           }
+        } else if (msg.event === "alert:expired" && msg.data?.symbol === symbol) {
+          // Source indicator (e.g. an FVG zone) was invalidated server-side.
+          void refresh();
         }
       } catch {
         /* ignore malformed frames */
@@ -100,6 +136,19 @@ export function useAlertWebSocket({ symbol }: UseAlertWebSocketOptions) {
   const createAlert = useCallback(
     async (input: CreateAlertInput) => {
       const res = await fetch(`/api/alerts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      if (res.ok) await refresh();
+      return res.ok;
+    },
+    [refresh],
+  );
+
+  const createIndicatorAlert = useCallback(
+    async (input: CreateIndicatorAlertInput) => {
+      const res = await fetch(`/api/alerts/indicator`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(input),
@@ -137,6 +186,7 @@ export function useAlertWebSocket({ symbol }: UseAlertWebSocketOptions) {
     lastTriggered,
     dismissTriggered: () => setLastTriggered(null),
     createAlert,
+    createIndicatorAlert,
     deleteAlert,
     setAlertStatus,
     refresh,

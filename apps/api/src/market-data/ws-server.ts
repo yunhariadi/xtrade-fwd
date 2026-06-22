@@ -1,6 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
-import type { Candle, WsFvgMessage, WsAlertTriggeredMessage } from "@ict-forward-lab/core";
+import type {
+  Candle,
+  WsFvgMessage,
+  WsAlertTriggeredMessage,
+  WsAlertExpiredMessage,
+} from "@ict-forward-lab/core";
 import type { StrategySignal } from "@ict-forward-lab/strategies";
 import type { ForwardTrade } from "../forward-test/types";
 import "@fastify/websocket";
@@ -107,6 +112,18 @@ export class WsServer {
    * Broadcast a fired price alert to all connected clients.
    */
   broadcastAlert(message: WsAlertTriggeredMessage): void {
+    const payload = JSON.stringify(message);
+    for (const client of this.clients) {
+      if (client.readyState === client.OPEN) {
+        client.send(payload);
+      }
+    }
+  }
+
+  /**
+   * Broadcast an auto-expired alert (e.g. its source FVG zone was mitigated).
+   */
+  broadcastAlertExpired(message: WsAlertExpiredMessage): void {
     const payload = JSON.stringify(message);
     for (const client of this.clients) {
       if (client.readyState === client.OPEN) {

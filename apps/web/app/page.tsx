@@ -10,7 +10,28 @@ import { TradePanel } from "../components/chart/TradePanel";
 import { AlertPanel } from "../components/chart/AlertPanel";
 import { useSignalWebSocket } from "../hooks/useSignalWebSocket";
 import { useTradeWebSocket } from "../hooks/useTradeWebSocket";
-import { useAlertWebSocket } from "../hooks/useAlertWebSocket";
+import { useAlertWebSocket, type TriggeredAlert } from "../hooks/useAlertWebSocket";
+
+const INDICATOR_NAME: Record<string, string> = {
+  fvg: "FVG",
+  ob: "order block",
+  liquidity: "liquidity",
+  bos: "structure break",
+};
+
+/** Human phrase for a fired indicator alert, e.g. "touched FVG 105000–105200". */
+function describeIndicatorTrigger(t: TriggeredAlert): string {
+  const name = INDICATOR_NAME[t.indicatorKind ?? ""] ?? "indicator";
+  const verb = t.targetKind === "zone" ? (t.trigger === "cross" ? "crossed through" : "touched") : "crossed";
+  const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const where =
+    t.targetKind === "zone" && t.priceLow != null && t.priceHigh != null
+      ? `${fmt(t.priceLow)}–${fmt(t.priceHigh)}`
+      : t.targetPrice != null
+        ? fmt(t.targetPrice)
+        : "";
+  return `${verb} ${name} ${where}`.trim();
+}
 
 export default function HomePage() {
   const [timeframe, setTimeframe] = useState("5m");
@@ -31,8 +52,14 @@ export default function HomePage() {
 
   const { activeTrades, recentTrades, balance } = useTradeWebSocket();
 
-  const { alerts, lastTriggered, dismissTriggered, createAlert, deleteAlert } =
-    useAlertWebSocket({ symbol: "BTCUSDT" });
+  const {
+    alerts,
+    lastTriggered,
+    dismissTriggered,
+    createAlert,
+    createIndicatorAlert,
+    deleteAlert,
+  } = useAlertWebSocket({ symbol: "BTCUSDT" });
 
   // Auto-dismiss the trigger toast after a few seconds.
   useEffect(() => {
@@ -102,7 +129,9 @@ export default function HomePage() {
             <AlertPanel
               alerts={alerts}
               symbol="BTCUSDT"
+              timeframe={timeframe}
               onCreate={createAlert}
+              onCreateIndicator={createIndicatorAlert}
               onDelete={deleteAlert}
             />
           )}
@@ -115,16 +144,18 @@ export default function HomePage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm font-semibold text-amber-400">
-                🔔 Price alert
+                🔔 {lastTriggered.kind === "indicator" ? "Indicator alert" : "Price alert"}
               </div>
               <div className="mt-0.5 text-xs text-gray-300 tabular-nums">
-                {lastTriggered.symbol} crossed{" "}
-                {lastTriggered.direction === "above"
-                  ? "above"
-                  : lastTriggered.direction === "below"
-                    ? "below"
-                    : "through"}{" "}
-                {lastTriggered.targetPrice} (@ {lastTriggered.triggeredPrice})
+                {lastTriggered.kind === "indicator"
+                  ? `${lastTriggered.symbol} ${describeIndicatorTrigger(lastTriggered)} (@ ${lastTriggered.triggeredPrice})`
+                  : `${lastTriggered.symbol} crossed ${
+                      lastTriggered.direction === "above"
+                        ? "above"
+                        : lastTriggered.direction === "below"
+                          ? "below"
+                          : "through"
+                    } ${lastTriggered.targetPrice} (@ ${lastTriggered.triggeredPrice})`}
               </div>
               {lastTriggered.note && (
                 <div className="mt-0.5 text-xs text-gray-500">{lastTriggered.note}</div>

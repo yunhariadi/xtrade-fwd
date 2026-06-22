@@ -336,6 +336,37 @@ server.registerTool(
 );
 
 server.registerTool(
+  "create_indicator_alert",
+  {
+    title: "Create an indicator alert (FVG / OB / Liquidity / BoS)",
+    description:
+      "Arm an alert on a detected indicator instead of a fixed price. Zone indicators (fvg, ob) " +
+      "fire on trigger='touch' (price enters the zone, default) or 'cross' (price passes fully " +
+      "through it). Level indicators (liquidity, bos) fire when price crosses the level. Get " +
+      "indicatorId from the matching tool: get_fvg, get_order_blocks, get_liquidity, get_structure. " +
+      "The level/zone is snapshotted at create time. Set repeat=true to re-arm after firing.",
+    inputSchema: {
+      symbol,
+      timeframe: z.string().describe("Timeframe the indicator was detected on, e.g. 15m"),
+      indicatorKind: z
+        .enum(["fvg", "ob", "liquidity", "bos"])
+        .describe("Indicator family: fvg/ob are zones; liquidity/bos are levels"),
+      indicatorId: z.string().describe("Instance id from get_fvg/get_order_blocks/get_liquidity/get_structure"),
+      trigger: z
+        .enum(["touch", "cross"])
+        .optional()
+        .describe("Zone indicators only: touch = enter zone (default), cross = pass through"),
+      repeat: z.boolean().default(false).describe("Re-arm after firing instead of one-shot"),
+      note: z.string().optional().describe("Free-text note, echoed back in the notification"),
+    },
+  },
+  ({ symbol, timeframe, indicatorKind, indicatorId, trigger, repeat, note }) =>
+    jsonTool(() =>
+      apiPost("/alerts/indicator", { symbol, timeframe, indicatorKind, indicatorId, trigger, repeat, note }),
+    ),
+);
+
+server.registerTool(
   "list_alerts",
   {
     title: "List price alerts",

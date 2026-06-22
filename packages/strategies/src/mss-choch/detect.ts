@@ -8,6 +8,8 @@ import { detectSwingPoints } from "../utils/swing-points";
  * BOS = subsequent break that CONTINUES the prevailing direction.
  */
 export interface StructureBreak {
+  /** Stable id: `{type}-{direction}-{time}`. */
+  id: string;
   type: "MSS" | "BOS";
   direction: "bullish" | "bearish";
   breakLevel: number;
@@ -56,8 +58,10 @@ export function detectStructureBreaks(
     const candle = candles[i];
 
     if (refHigh && candle.close > refHigh.price) {
+      const type = trend === "bullish" ? "BOS" : "MSS";
       breaks.push({
-        type: trend === "bullish" ? "BOS" : "MSS",
+        id: `${type}-bullish-${candle.time}`,
+        type,
         direction: "bullish",
         breakLevel: refHigh.price,
         time: candle.time,
@@ -66,8 +70,10 @@ export function detectStructureBreaks(
       trend = "bullish";
       refHigh = null; // consume — wait for a new swing high to form
     } else if (refLow && candle.close < refLow.price) {
+      const type = trend === "bearish" ? "BOS" : "MSS";
       breaks.push({
-        type: trend === "bearish" ? "BOS" : "MSS",
+        id: `${type}-bearish-${candle.time}`,
+        type,
         direction: "bearish",
         breakLevel: refLow.price,
         time: candle.time,

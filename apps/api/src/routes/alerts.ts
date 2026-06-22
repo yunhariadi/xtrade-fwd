@@ -2,15 +2,22 @@ import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   listAlertsSchema,
   createAlertSchema,
+  createIndicatorAlertSchema,
   updateAlertSchema,
   deleteAlertSchema,
 } from "../schemas";
-import type {
-  CreatePriceAlertInput,
-  PriceAlertDirection,
-  PriceAlertStatus,
-  UpdatePriceAlertInput,
+import {
+  resolveIndicatorAlert,
+  type CreatePriceAlertInput,
+  type CreateIndicatorAlertInput,
+  type PriceAlertDirection,
+  type PriceAlertStatus,
+  type UpdatePriceAlertInput,
+  type AlertTrigger,
+  type IndicatorKind,
 } from "../alerts";
+import { IndicatorNotFoundError } from "../alerts/indicator-resolver";
+import { getExchange } from "../market-data/market-source";
 
 interface CreateBody {
   symbol: string;
@@ -28,7 +35,19 @@ interface UpdateBody {
   note?: string;
 }
 
+interface CreateIndicatorBody {
+  symbol: string;
+  timeframe: string;
+  indicatorKind: IndicatorKind;
+  indicatorId: string;
+  trigger?: AlertTrigger;
+  repeat?: boolean;
+  note?: string;
+}
+
 const VALID_DIRECTIONS: PriceAlertDirection[] = ["above", "below", "cross"];
+const VALID_INDICATORS: IndicatorKind[] = ["fvg", "ob", "liquidity", "bos"];
+const VALID_TRIGGERS: AlertTrigger[] = ["touch", "cross"];
 
 export async function alertRoutes(fastify: FastifyInstance) {
   fastify.get(
@@ -65,6 +84,56 @@ export async function alertRoutes(fastify: FastifyInstance) {
       await fastify.alertMonitor.reload();
       reply.status(201);
       return alert;
+    },
+  );
+
+  fastify.post(
+    "/alerts/indicator",
+    { schema: createIndicatorAlertSchema },
+    async (request: FastifyRequest<{ Body: CreateIndicatorBody }>, reply) => {
+      const { symbol, timeframe, indicatorKind, indicatorId, trigger, repeat, note } =
+        request.body;
+
+      if (!symbol || !timeframe || !indicatorId) {
+        reply.status(400);
+        return { error: "bad_request", message: "symbol, timeframe and indicatorId are required" };
+      }
+      if (!VALID_INDICATORS.includes(indicatorKind)) {
+        reply.status(400);
+        return { error: "bad_request", message: `indicatorKind must be one of ${VALID_INDICATORS.join(", ")}` };
+      }
+      if (trigger !== undefined && !VALID_TRIGGERS.includes(trigger)) {
+        reply.status(400);
+        return { error: "bad_request", message: "trigger must be 'touch' or 'cross'" };
+      }
+
+      const input: CreateIndicatorAlertInput = {
+        symbol,
+        timeframe,
+        indicatorKind,
+        indicatorId,
+        trigger,
+        repeat: repeat ?? false,
+        note: note ?? null,
+      };
+
+      try {
+        const resolved = await resolveIndicatorAlert(input, {
+          pool: fastify.db,
+          exchange: getExchange(),
+          fvgTracker: fastify.fvgTracker,
+        });
+        const alert = await fastify.alertStore.createIndicator(input, resolved);
+        await fastify.alertMonitor.reload();
+        reply.status(201);
+        return alert;
+      } catch (err) {
+        if (err instanceof IndicatorNotFoundError) {
+          reply.status(404);
+          return { error: "not_found", message: err.message };
+        }
+        throw err;
+      }
     },
   );
 

@@ -220,7 +220,11 @@ export class MarketDataService {
     if (candle.isClosed) {
       await this.candleStore.persist(candle, symbol, timeframe);
       this.wsServer.broadcast("candle:closed", candle, symbol, timeframe);
-      this.fvgTracker.onCandleClosed(candle, symbol, timeframe);
+      const mitigated = this.fvgTracker.onCandleClosed(candle, symbol, timeframe);
+      // A mitigated FVG zone invalidates any alert bound to it — auto-expire.
+      if (mitigated.length > 0) {
+        void this.alertMonitor.expireFvgZones(symbol, timeframe, mitigated);
+      }
 
       const signal = await this.strategyRunner.onCandleClosed(candle, symbol, timeframe);
 

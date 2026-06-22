@@ -19,8 +19,14 @@ export class FvgTracker {
 
   constructor(private options: FvgTrackerOptions) {}
 
-  onCandleClosed(candle: Candle, symbol: string, timeframe: string): void {
-    if (!candle.isClosed) return;
+  /**
+   * Feed a closed candle. Detects new zones and updates mitigation/touch state,
+   * broadcasting the changes. Returns the ids of zones mitigated by this candle
+   * so callers can react (e.g. auto-expire alerts bound to a dead zone).
+   */
+  onCandleClosed(candle: Candle, symbol: string, timeframe: string): string[] {
+    if (!candle.isClosed) return [];
+    const mitigatedIds: string[] = [];
 
     const key = `${symbol}:${timeframe}`;
 
@@ -53,6 +59,7 @@ export class FvgTracker {
       if (checkMitigation(zone, candle)) {
         zone.status = "mitigated";
         zone.mitigatedAt = candle.time;
+        mitigatedIds.push(zone.id);
         const msg: WsFvgMessage = {
           event: "fvg:mitigated",
           data: { symbol, timeframe, zoneId: zone.id, status: "mitigated" },
@@ -68,6 +75,8 @@ export class FvgTracker {
         this.options.wsServer.broadcastFvg(msg);
       }
     }
+
+    return mitigatedIds;
   }
 
 

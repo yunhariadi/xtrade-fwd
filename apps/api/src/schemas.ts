@@ -310,6 +310,41 @@ export const createAlertSchema = {
   },
 } as const;
 
+export const createIndicatorAlertSchema = {
+  tags: ["alerts"],
+  summary: "Create an indicator alert (FVG / OB / Liquidity / BoS)",
+  description:
+    "Arms an alert snapshotted from a detected indicator instance. Zone indicators " +
+    "(FVG, OB) fire on `touch` (price enters the zone) or `cross` (price passes fully " +
+    "through it); level indicators (Liquidity, BoS) fire when price crosses the level. " +
+    "`indicatorId` comes from the matching analysis endpoint (`/fvg`, `/order-blocks`, " +
+    "`/liquidity`, `/structure`). The level/zone is snapshotted at create time.",
+  body: {
+    type: "object",
+    required: ["symbol", "timeframe", "indicatorKind", "indicatorId"],
+    properties: {
+      symbol,
+      timeframe,
+      indicatorKind: {
+        type: "string",
+        enum: ["fvg", "ob", "liquidity", "bos"],
+        description: "Indicator family to snapshot the target from",
+      },
+      indicatorId: {
+        type: "string",
+        description: "Instance id from the matching analysis endpoint",
+      },
+      trigger: {
+        type: "string",
+        enum: ["touch", "cross"],
+        description: "Zone indicators only: touch = enter the zone (default), cross = pass through it",
+      },
+      repeat: { type: "boolean", description: "Re-arm after firing (default false)" },
+      note: { type: "string", description: "Optional label shown when the alert fires" },
+    },
+  },
+} as const;
+
 export const updateAlertSchema = {
   tags: ["alerts"],
   summary: "Update a price alert (edit, enable/disable, re-arm)",

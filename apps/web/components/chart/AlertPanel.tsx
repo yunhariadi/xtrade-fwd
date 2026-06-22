@@ -4,15 +4,26 @@ import { useState } from "react";
 import type {
   AlertDirection,
   CreateAlertInput,
+  CreateIndicatorAlertInput,
   PriceAlert,
 } from "../../hooks/useAlertWebSocket";
+import { IndicatorAlertForm } from "./IndicatorAlertForm";
 
 interface AlertPanelProps {
   alerts: PriceAlert[];
   symbol: string;
+  timeframe: string;
   onCreate: (input: CreateAlertInput) => Promise<boolean>;
+  onCreateIndicator: (input: CreateIndicatorAlertInput) => Promise<boolean>;
   onDelete: (id: number) => Promise<boolean>;
 }
+
+const INDICATOR_LABEL: Record<string, string> = {
+  fvg: "FVG",
+  ob: "OB",
+  liquidity: "LIQ",
+  bos: "BoS",
+};
 
 const DIRECTIONS: { value: AlertDirection; label: string }[] = [
   { value: "above", label: "Crosses up ▲" },
@@ -20,7 +31,15 @@ const DIRECTIONS: { value: AlertDirection; label: string }[] = [
   { value: "cross", label: "Crosses ⇅" },
 ];
 
-export function AlertPanel({ alerts, symbol, onCreate, onDelete }: AlertPanelProps) {
+export function AlertPanel({
+  alerts,
+  symbol,
+  timeframe,
+  onCreate,
+  onCreateIndicator,
+  onDelete,
+}: AlertPanelProps) {
+  const [mode, setMode] = useState<"price" | "indicator">("price");
   const [price, setPrice] = useState("");
   const [direction, setDirection] = useState<AlertDirection>("above");
   const [note, setNote] = useState("");
@@ -58,9 +77,32 @@ export function AlertPanel({ alerts, symbol, onCreate, onDelete }: AlertPanelPro
 
   return (
     <div className="flex flex-col overflow-y-auto text-gray-200">
-      {/* Create form */}
+      {/* Mode toggle */}
+      <div className="flex gap-1 p-3 pb-0">
+        <button
+          type="button"
+          onClick={() => setMode("price")}
+          className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${mode === "price" ? "bg-gray-800 text-gray-100" : "text-gray-500 hover:text-gray-300"}`}
+        >
+          Price
+        </button>
+        <button
+          type="button"
+          onClick={() => setMode("indicator")}
+          className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${mode === "indicator" ? "bg-gray-800 text-gray-100" : "text-gray-500 hover:text-gray-300"}`}
+        >
+          Indicator
+        </button>
+      </div>
+
+      {mode === "indicator" ? (
+        <div className="p-3 border-b border-gray-800">
+          <IndicatorAlertForm symbol={symbol} timeframe={timeframe} onCreate={onCreateIndicator} />
+        </div>
+      ) : (
+      /* Create form */
       <form onSubmit={handleSubmit} className="p-3 border-b border-gray-800 space-y-2">
-        <div className="text-xs font-semibold uppercase text-gray-400">New alert</div>
+        <div className="text-xs font-semibold uppercase text-gray-400">New price alert</div>
         <input
           type="number"
           step="any"
@@ -106,6 +148,7 @@ export function AlertPanel({ alerts, symbol, onCreate, onDelete }: AlertPanelPro
           {submitting ? "Adding…" : "Add alert"}
         </button>
       </form>
+      )}
 
       {/* Active alerts */}
       <div className="p-3 space-y-2">
@@ -140,7 +183,21 @@ function AlertRow({
   onDelete: (id: number) => Promise<boolean>;
   dimmed?: boolean;
 }) {
+  const isIndicator = alert.kind === "indicator";
   const arrow = alert.direction === "above" ? "▲" : alert.direction === "below" ? "▼" : "⇅";
+  const fmt = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+
+  const headline =
+    alert.targetKind === "zone" && alert.priceLow !== null && alert.priceHigh !== null
+      ? `${fmt(alert.priceLow)}–${fmt(alert.priceHigh)}`
+      : alert.targetPrice !== null
+        ? fmt(alert.targetPrice)
+        : "—";
+
+  const tag = isIndicator
+    ? `${INDICATOR_LABEL[alert.indicatorKind ?? ""] ?? "IND"}${alert.trigger ? ` ${alert.trigger}` : ""}`
+    : null;
+
   return (
     <div
       className={`flex items-center justify-between gap-2 rounded border border-gray-800 px-2 py-1.5 ${
@@ -149,9 +206,15 @@ function AlertRow({
     >
       <div className="min-w-0">
         <div className="text-sm tabular-nums">
-          <span className="text-amber-400">{arrow}</span> {alert.targetPrice}
+          <span className="text-amber-400">{isIndicator ? "◆" : arrow}</span> {headline}
           {alert.repeat && <span className="ml-1 text-[10px] text-gray-500">↻</span>}
         </div>
+        {tag && (
+          <div className="text-[10px] uppercase tracking-wide text-blue-400">
+            {tag}
+            {alert.timeframe ? ` · ${alert.timeframe}` : ""}
+          </div>
+        )}
         {alert.note && <div className="truncate text-xs text-gray-500">{alert.note}</div>}
         {alert.status === "triggered" && alert.triggeredPrice !== null && (
           <div className="text-[10px] text-gray-500">
