@@ -122,6 +122,7 @@ export async function alertRoutes(fastify: FastifyInstance) {
           pool: fastify.db,
           exchange: getExchange(),
           fvgTracker: fastify.fvgTracker,
+          strategyRunner: fastify.strategyRunner,
         });
         const alert = await fastify.alertStore.createIndicator(input, resolved);
         await fastify.alertMonitor.reload();

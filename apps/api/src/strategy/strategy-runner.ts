@@ -8,6 +8,8 @@ import { getExchange } from "../market-data/market-source";
 import { SignalStore } from "./signal-store";
 
 export interface LiquidityLevel {
+  /** Stable id: `liquidity-{type}-{time}` — used to reference a level in alerts. */
+  id: string;
   type: "buy-side" | "sell-side";
   price: number;
   time: number;
@@ -202,8 +204,10 @@ export class StrategyRunner {
 
     // Determine which levels have been swept by checking if any subsequent candle wicked beyond
     const levels: LiquidityLevel[] = swings.map((swing) => {
+      const type = swing.type === "high" ? "buy-side" : "sell-side";
       const level: LiquidityLevel = {
-        type: swing.type === "high" ? "buy-side" : "sell-side",
+        id: `liquidity-${type}-${swing.time}`,
+        type,
         price: swing.price,
         time: swing.time,
         swept: false,

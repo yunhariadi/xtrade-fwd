@@ -1,11 +1,8 @@
 import type { Pool } from "pg";
 import { dbRowToCandle, type Candle } from "@ict-forward-lab/core";
-import {
-  detectOrderBlocks,
-  detectStructureBreaks,
-  detectLiquidityLevels,
-} from "@ict-forward-lab/strategies";
+import { detectOrderBlocks, detectStructureBreaks } from "@ict-forward-lab/strategies";
 import type { FvgTracker } from "../fvg/fvg-tracker";
+import type { StrategyRunner } from "../strategy/strategy-runner";
 import type {
   AlertTargetKind,
   AlertTrigger,
@@ -29,6 +26,7 @@ export interface IndicatorResolverDeps {
   pool: Pool;
   exchange: string;
   fvgTracker: FvgTracker;
+  strategyRunner: StrategyRunner;
 }
 
 /** Thrown when the referenced indicator instance can't be found at create time. */
@@ -79,8 +77,8 @@ export async function resolveIndicatorAlert(
     }
 
     case "liquidity": {
-      const candles = await loadCandles(deps, symbol, input.timeframe, 300);
-      const level = detectLiquidityLevels(candles, 5, 5).find((l) => l.id === input.indicatorId);
+      const levels = await deps.strategyRunner.getLiquidityLevels(symbol, input.timeframe);
+      const level = levels.find((l) => l.id === input.indicatorId);
       if (!level) {
         throw new IndicatorNotFoundError(
           `Liquidity level ${input.indicatorId} not found for ${symbol}/${input.timeframe}`,
