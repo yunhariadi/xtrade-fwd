@@ -71,7 +71,12 @@
       "Bash(pnpm --filter \"@ict-forward-lab/api\" test)",
       "Bash(pnpm --filter @ict-forward-lab/api typecheck)",
       "Bash(pnpm --filter @ict-forward-lab/api test)",
-      "Bash(pnpm --filter @ict-forward-lab/api lint)"
+      "Bash(pnpm --filter @ict-forward-lab/api lint)",
+      "Bash(pnpm --filter @ict-forward-lab/core run build)",
+      "Bash(pnpm --filter @ict-forward-lab/strategies run build)",
+      "Bash(pnpm --filter @ict-forward-lab/api run typecheck)",
+      "Bash(pnpm --filter @ict-forward-lab/api run test)",
+      "Bash(git reset *)"
     ]
   }
 }
