@@ -46,6 +46,33 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+const INDICATOR_NAME = {
+  fvg: "FVG",
+  ob: "order block",
+  liquidity: "liquidity",
+  bos: "structure break",
+};
+
+/**
+ * Human phrase for what an alert did, for both price and indicator alerts.
+ * Price: "crossed above 64000". Indicator zone: "touched bullish FVG 63561.5–63662.9".
+ * Indicator level: "crossed bearish structure break 64200".
+ */
+function describeTarget(a) {
+  if (a.kind === "indicator") {
+    const name = INDICATOR_NAME[a.indicatorKind] ?? "indicator";
+    const dir = a.indicatorDirection ? `${a.indicatorDirection} ` : "";
+    if (a.targetKind === "zone" && a.priceLow != null && a.priceHigh != null) {
+      const verb = a.trigger === "cross" ? "crossed through" : "touched";
+      return `${verb} ${dir}${name} ${a.priceLow}–${a.priceHigh}`;
+    }
+    return `crossed ${dir}${name} ${a.targetPrice}`;
+  }
+  const verb =
+    a.direction === "above" ? "crossed above" : a.direction === "below" ? "crossed below" : "crossed";
+  return `${verb} ${a.targetPrice}`;
+}
+
 /** Send a message to Telegram. No-op if not configured. */
 async function sendTelegram(text) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
@@ -88,9 +115,10 @@ function secretMatches(provided) {
  */
 async function forwardToAgent(alert) {
   if (!AGENT_WEBHOOK_URL) return;
+  const kind = alert.kind === "indicator" ? "Indicator" : "Price";
   const text =
-    `ICT: Price alert on ${alert.symbol} @ ${alert.triggeredPrice} ` +
-    `(crossed ${alert.direction} ${alert.targetPrice})` +
+    `ICT: ${kind} alert on ${alert.symbol} @ ${alert.triggeredPrice} ` +
+    `(${describeTarget(alert)})` +
     (alert.note ? ` — ${alert.note}` : "");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 5000);
@@ -116,19 +144,29 @@ async function forwardToAgent(alert) {
 
 /** This is where you hand the alert off to Hermes. */
 async function handleAlert(alert) {
-  // alert = { id, symbol, direction, targetPrice, triggeredPrice, triggeredAt, note }
+  // alert = { id, symbol, kind, targetKind, direction, targetPrice, priceLow,
+  //   priceHigh, trigger, indicatorKind, indicatorDirection, timeframe,
+  //   triggeredPrice, triggeredAt, note }
   console.log(
-    `[receiver] ALERT #${alert.id} ${alert.symbol} ${alert.direction} ` +
-      `target ${alert.targetPrice} touched @ ${alert.triggeredPrice} (${alert.triggeredAt})` +
+    `[receiver] ALERT #${alert.id} ${alert.symbol} ${describeTarget(alert)} ` +
+      `@ ${alert.triggeredPrice} (${alert.triggeredAt})` +
       (alert.note ? ` — ${alert.note}` : ""),
   );
 
-  const arrow = alert.direction === "below" ? "🔻" : alert.direction === "above" ? "🔺" : "🔔";
+  const isIndicator = alert.kind === "indicator";
+  const arrow = isIndicator
+    ? "🎯"
+    : alert.direction === "below"
+      ? "🔻"
+      : alert.direction === "above"
+        ? "🔺"
+        : "🔔";
+  const title = isIndicator ? "Indicator alert" : "Price alert";
+  const tf = alert.timeframe ? ` <i>(${escapeHtml(alert.timeframe)})</i>` : "";
   const text =
-    `${arrow} <b>Price alert</b>\n` +
-    `<b>${escapeHtml(alert.symbol)}</b> ${escapeHtml(alert.direction)} ` +
-    `<code>${escapeHtml(alert.targetPrice)}</code>\n` +
-    `touched @ <code>${escapeHtml(alert.triggeredPrice)}</code>\n` +
+    `${arrow} <b>${title}</b>${tf}\n` +
+    `<b>${escapeHtml(alert.symbol)}</b> ${escapeHtml(describeTarget(alert))}\n` +
+    `fired @ <code>${escapeHtml(alert.triggeredPrice)}</code>\n` +
     `<i>${escapeHtml(alert.triggeredAt)}</i>` +
     (alert.note ? `\n📝 ${escapeHtml(alert.note)}` : "");
 
