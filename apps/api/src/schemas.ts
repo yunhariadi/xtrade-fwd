@@ -19,7 +19,7 @@ const errorResponse = {
 const symbol = { type: "string", description: "Trading pair, e.g. BTCUSDT" } as const;
 const timeframe = {
   type: "string",
-  enum: ["5m", "15m", "1h", "4h"],
+  enum: ["5m", "15m", "1h", "4h", "1d", "1w"],
   description: "Candle timeframe",
 } as const;
 
@@ -108,6 +108,34 @@ export const mtfAlignmentSchema = {
   },
 } as const;
 
+export const premiumDiscountSchema = {
+  tags: ["analysis"],
+  summary: "Premium/discount array (equilibrium, fib, EQH/EQL) for a timeframe",
+  description:
+    "The dealing range price is navigating on `timeframe` (extreme swing high → swing low), its " +
+    "50% `equilibrium`, the standard fib array (0/0.25/0.5/0.75/1), explicit `premiumZone`/" +
+    "`discountZone` boundaries, where the last close sits (`location` premium|discount|equilibrium " +
+    "and a finer `zone`), plus clustered `equalHighs`/`equalLows` (EQH/EQL liquidity pools). Use a " +
+    "higher `timeframe` (1d/1w) for the macro range. Prices absolute; times **Unix seconds**.",
+  querystring: symbolTimeframeQuery,
+} as const;
+
+export const tickerSchema = {
+  tags: ["market-data"],
+  summary: "Live ticker — last price + 24h change",
+  description:
+    "Current `last` price with 24h `change`/`changePercent`, `high24h`/`low24h`/`volume24h`, and " +
+    "`bid`/`ask` when the source provides them (Bybit yes; Binance returns null bid/ask). Fetched " +
+    "live from the exchange REST on each call. `time` is **Unix seconds**. Saves fetching the last " +
+    "candle just to read spot.",
+  querystring: {
+    type: "object",
+    properties: {
+      symbol: { ...symbol, default: "BTCUSDT" },
+    },
+  },
+} as const;
+
 export const killzonesSchema = {
   tags: ["analysis"],
   summary: "ICT session killzone windows (current + next)",
@@ -135,7 +163,9 @@ export const decisionPacketSchema = {
     "and a short natural-language `narrative`. Designed so an agent decides from a small, " +
     "high-signal packet instead of raw candles. Each `liquidity.targets[]` carries a " +
     "`significance` rank (4 weekly > 3 daily > 2 session > 1 internal/swing) for prioritising " +
-    "draws. `timestamp` and all level times are **Unix seconds**. Computed on each call from " +
+    "draws. `structure` carries the latest 15m, daily and weekly breaks; the `daily` bias layer " +
+    "reads real daily structure when 1d candles are ingested. `timestamp` and all level times " +
+    "are **Unix seconds**. Computed on each call from " +
     "closed candles. NOTE: the volume profile is candle-approximated and the score weights are " +
     "an untuned heuristic.",
   querystring: {

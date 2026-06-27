@@ -23,12 +23,17 @@ export async function decisionPacketRoutes(fastify: FastifyInstance) {
       const symbol = (request.query.symbol ?? "BTCUSDT").toUpperCase();
 
       // 4h reaches back ~33 days so weekly + previous-week ranges exist.
-      const [candles5m, candles15m, candles1h, candles4h] = await Promise.all([
-        loadCandles(fastify, symbol, "5m", 300),
-        loadCandles(fastify, symbol, "15m", 300),
-        loadCandles(fastify, symbol, "1h", 200),
-        loadCandles(fastify, symbol, "4h", 200),
-      ]);
+      // 1d/1w give the bias layer real daily/weekly structure (empty arrays if
+      // those timeframes aren't ingested yet — the assembler falls back).
+      const [candles5m, candles15m, candles1h, candles4h, candles1d, candles1w] =
+        await Promise.all([
+          loadCandles(fastify, symbol, "5m", 300),
+          loadCandles(fastify, symbol, "15m", 300),
+          loadCandles(fastify, symbol, "1h", 200),
+          loadCandles(fastify, symbol, "4h", 200),
+          loadCandles(fastify, symbol, "1d", 200),
+          loadCandles(fastify, symbol, "1w", 200),
+        ]);
 
       // Active FVG zones are tracked live in-memory; empty until the feed warms up.
       const fvgZones = fastify.fvgTracker?.getZones(symbol, "5m") ?? [];
@@ -39,6 +44,8 @@ export async function decisionPacketRoutes(fastify: FastifyInstance) {
         candles15m,
         candles1h,
         candles4h,
+        candles1d,
+        candles1w,
         fvgZones,
       });
     }

@@ -20,6 +20,7 @@ export * from "./entry";
 export * from "./order-blocks";
 export * from "./sessions";
 export * from "./mtf";
+export * from "./premium-discount";
 export * from "./volume-profile";
 export * from "./amd";
 export * from "./irl-erl";

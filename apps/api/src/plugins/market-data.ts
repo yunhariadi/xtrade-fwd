@@ -18,7 +18,7 @@ export const marketDataPlugin = fp(async (fastify: FastifyInstance) => {
   const binanceWsUrl =
     process.env.BINANCE_WS_URL ?? "wss://fstream.binance.com/ws";
   const symbol = process.env.MARKET_SYMBOL ?? "BTCUSDT";
-  const timeframes = (process.env.MARKET_TIMEFRAMES ?? "5m,15m,1h,4h").split(
+  const timeframes = (process.env.MARKET_TIMEFRAMES ?? "5m,15m,1h,4h,1d,1w").split(
     ",",
   );
 

@@ -24,6 +24,7 @@ import type {
   DecisionPacketInput,
   LayeredBias,
   PacketRisk,
+  StructureBreakSummary,
 } from "./types";
 
 /**
@@ -91,11 +92,19 @@ export function assembleDecisionPacket(input: DecisionPacketInput): DecisionPack
   const breaks = detectStructureBreaks(candles15m, 5, 5);
   const lastBreak = breaks.length > 0 ? breaks[breaks.length - 1] : null;
   const mss = detectMSS(candles15m);
+  // Real daily/weekly structure breaks when those candles are supplied; the
+  // bias layer then reads actual D structure instead of a 1h proxy.
+  const candles1d = input.candles1d ?? [];
+  const candles1w = input.candles1w ?? [];
+  const dailyBreak = lastBreakOf(candles1d);
+  const weeklyBreak = lastBreakOf(candles1w);
+  const dailyBias: BiasDirection =
+    candles1d.length > 0 ? detect4HBias(candles1d) : detect4HBias(candles1h.slice(-30));
 
   // --- Bias (layered) -----------------------------------------------------
   const bias = buildLayeredBias({
     weekly: weeklyProfile,
-    daily: detect4HBias(candles1h.slice(-30)),
+    daily: dailyBias,
     fourH: detect4HBias(candles4h),
     structure15m: lastBreak ? lastBreak.direction : "neutral",
     session: sessionProfile,
@@ -162,6 +171,8 @@ export function assembleDecisionPacket(input: DecisionPacketInput): DecisionPack
             time: lastBreak.time,
           }
         : null,
+      daily: dailyBreak,
+      weekly: weeklyBreak,
     },
     liquidity: { targets },
     fvg: activeFvg,
@@ -170,6 +181,16 @@ export function assembleDecisionPacket(input: DecisionPacketInput): DecisionPack
     narrative,
     score,
   };
+}
+
+/** Most recent structure break on a timeframe, summarised (null if none). */
+function lastBreakOf(candles: Candle[]): StructureBreakSummary | null {
+  if (candles.length === 0) return null;
+  const breaks = detectStructureBreaks(candles, 5, 5);
+  const last = breaks.length > 0 ? breaks[breaks.length - 1] : null;
+  return last
+    ? { type: last.type, direction: last.direction, breakLevel: last.breakLevel, time: last.time }
+    : null;
 }
 
 interface TargetRanges {

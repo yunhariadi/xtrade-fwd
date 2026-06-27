@@ -14,6 +14,10 @@ export interface DecisionPacketInput {
   candles15m: Candle[];
   candles1h: Candle[];
   candles4h: Candle[];
+  /** Daily candles — when present, the `daily` bias layer reads real D structure. */
+  candles1d?: Candle[];
+  /** Weekly candles — when present, exposes real W structure breaks. */
+  candles1w?: Candle[];
   /** Active FVG zones from the live tracker; used as IRL targets. */
   fvgZones?: FvgZone[];
   /** Override "now" (Unix seconds). Defaults to the latest 5m candle time. */
@@ -21,6 +25,13 @@ export interface DecisionPacketInput {
 }
 
 /** Layered, multi-source bias with a single resolved direction. */
+export interface StructureBreakSummary {
+  type: string;
+  direction: string;
+  breakLevel: number;
+  time: number;
+}
+
 export interface LayeredBias {
   weekly: BiasDirection;
   daily: BiasDirection;
@@ -59,7 +70,11 @@ export interface DecisionPacket {
   amd: AmdResult;
   irlErl: IrlErlResult;
   structure: {
-    last15m: { type: string; direction: string; breakLevel: number; time: number } | null;
+    last15m: StructureBreakSummary | null;
+    /** Most recent daily structure break (null until 1d candles are supplied). */
+    daily: StructureBreakSummary | null;
+    /** Most recent weekly structure break (null until 1w candles are supplied). */
+    weekly: StructureBreakSummary | null;
   };
   liquidity: {
     targets: LiquidityTarget[];

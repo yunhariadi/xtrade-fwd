@@ -89,8 +89,8 @@ async function jsonTool(fn: () => Promise<unknown>) {
 
 const symbol = z.string().describe("Trading pair, e.g. BTCUSDT").default("BTCUSDT");
 const timeframe = z
-  .enum(["5m", "15m", "1h", "4h"])
-  .describe("Candle timeframe");
+  .enum(["5m", "15m", "1h", "4h", "1d", "1w"])
+  .describe("Candle timeframe (1d/1w give daily/weekly structure & ranges)");
 
 const server = new McpServer({ name: "ict-forward-lab", version: "0.1.0" });
 
@@ -106,6 +106,19 @@ server.registerTool(
     },
   },
   ({ symbol, timeframe, limit }) => jsonTool(() => apiGet("/candles", { symbol, timeframe, limit })),
+);
+
+server.registerTool(
+  "get_ticker",
+  {
+    title: "Get the live ticker (last price + 24h change)",
+    description:
+      "Current `last` price with 24h `change`/`changePercent`, `high24h`/`low24h`/`volume24h`, and " +
+      "`bid`/`ask` when available (Bybit yes; Binance returns null bid/ask). Fetched live from the " +
+      "exchange on each call. Use instead of pulling the last candle just to read spot price.",
+    inputSchema: { symbol: symbol.optional() },
+  },
+  ({ symbol }) => jsonTool(() => apiGet("/ticker", { symbol })),
 );
 
 server.registerTool(
@@ -159,6 +172,20 @@ server.registerTool(
 );
 
 server.registerTool(
+  "get_premium_discount",
+  {
+    title: "Get premium/discount array (equilibrium, fib, EQH/EQL)",
+    description:
+      "The dealing range on a timeframe with its 50% `equilibrium`, fib array, explicit " +
+      "`premiumZone`/`discountZone` boundaries, where the last close sits (`location`/`zone`), and " +
+      "clustered `equalHighs`/`equalLows` (EQH/EQL liquidity). Use a higher timeframe (1d/1w) for " +
+      "the macro range; only enter longs in discount / shorts in premium. Times in Unix seconds.",
+    inputSchema: { symbol, timeframe },
+  },
+  ({ symbol, timeframe }) => jsonTool(() => apiGet("/premium-discount", { symbol, timeframe })),
+);
+
+server.registerTool(
   "get_mtf_alignment",
   {
     title: "Get multi-timeframe alignment in one call",
@@ -209,7 +236,9 @@ server.registerTool(
     description:
       "The agent-facing 'data brain' snapshot: fuses weekly/session profile, AMD phase, " +
       "IRL/ERL draw, market structure, liquidity targets, volume profile and a layered bias " +
-      "into one compact JSON, plus a deterministic quant `score` (0-100 with a `recommendation`: " +
+      "into one compact JSON. `structure` carries the latest 15m, daily and weekly breaks, and the " +
+      "`daily` bias layer reads real daily structure when 1d candles are ingested. Plus a " +
+      "deterministic quant `score` (0-100 with a `recommendation`: " +
       "ignore < 50, monitor_only 50-64, internal_alert 65-69, send_to_oc 70-79, send_to_oc_and_ha 80+) " +
       "and a short `narrative`. Decide from THIS packet rather than requesting raw candles. " +
       "Times are Unix seconds. Volume profile is candle-approximated; score weights are an untuned heuristic. " +
