@@ -1,2 +1,2 @@
-export { KILLZONES, isInKillzone, getKillzone } from "./killzones";
-export type { Killzone } from "./killzones";
+export { KILLZONES, isInKillzone, getKillzone, getKillzoneWindows } from "./killzones";
+export type { Killzone, KillzoneWindow } from "./killzones";

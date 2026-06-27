@@ -180,27 +180,41 @@ interface TargetRanges {
   sessionPoc: number | null;
 }
 
+/**
+ * Rank a liquidity target by its sub-type so an agent can prioritise draws:
+ * weekly (4) > daily (3) > session (2) > internal/swing (1). Weekly/daily pools
+ * are the strongest magnets; FVG/POC internal liquidity is the weakest.
+ */
+function significanceOf(type: string): number {
+  if (type.startsWith("previous_week")) return 4;
+  if (type.startsWith("previous_day")) return 3;
+  if (type.startsWith("session")) return 2;
+  return 1;
+}
+
 function buildTargets(fvgZones: FvgZone[], r: TargetRanges): LiquidityTarget[] {
   const targets: LiquidityTarget[] = [];
+  const add = (t: Omit<LiquidityTarget, "significance">) =>
+    targets.push({ ...t, significance: significanceOf(t.type) });
 
   // ERL — external reference liquidity.
   if (r.pdRange) {
-    targets.push({ category: "ERL", label: "PDH", type: "previous_day_high", price: r.pdRange.high });
-    targets.push({ category: "ERL", label: "PDL", type: "previous_day_low", price: r.pdRange.low });
+    add({ category: "ERL", label: "PDH", type: "previous_day_high", price: r.pdRange.high });
+    add({ category: "ERL", label: "PDL", type: "previous_day_low", price: r.pdRange.low });
   }
   if (r.pwRange) {
-    targets.push({ category: "ERL", label: "PWH", type: "previous_week_high", price: r.pwRange.high });
-    targets.push({ category: "ERL", label: "PWL", type: "previous_week_low", price: r.pwRange.low });
+    add({ category: "ERL", label: "PWH", type: "previous_week_high", price: r.pwRange.high });
+    add({ category: "ERL", label: "PWL", type: "previous_week_low", price: r.pwRange.low });
   }
   if (r.asia) {
-    targets.push({ category: "ERL", label: "Asia High", type: "session_high", price: r.asia.high });
-    targets.push({ category: "ERL", label: "Asia Low", type: "session_low", price: r.asia.low });
+    add({ category: "ERL", label: "Asia High", type: "session_high", price: r.asia.high });
+    add({ category: "ERL", label: "Asia Low", type: "session_low", price: r.asia.low });
   }
 
   // IRL — internal range liquidity.
   for (const z of fvgZones) {
     if (z.status !== "active") continue;
-    targets.push({
+    add({
       category: "IRL",
       label: `${z.direction} FVG`,
       type: "fvg",
@@ -210,7 +224,7 @@ function buildTargets(fvgZones: FvgZone[], r: TargetRanges): LiquidityTarget[] {
     });
   }
   if (r.sessionPoc != null) {
-    targets.push({ category: "IRL", label: "Session POC", type: "poc", price: r.sessionPoc });
+    add({ category: "IRL", label: "Session POC", type: "poc", price: r.sessionPoc });
   }
 
   return targets;

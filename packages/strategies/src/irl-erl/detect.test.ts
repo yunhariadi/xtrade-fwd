@@ -8,9 +8,9 @@ function c(close: number, high = close + 1, low = close - 1): Candle {
 }
 
 const targets: LiquidityTarget[] = [
-  { category: "IRL", label: "5m bullish FVG", type: "fvg", price: 100, low: 99, high: 101 },
-  { category: "ERL", label: "Asia High", type: "session_high", price: 120 },
-  { category: "ERL", label: "PDL", type: "previous_day_low", price: 80 },
+  { category: "IRL", label: "5m bullish FVG", type: "fvg", significance: 1, price: 100, low: 99, high: 101 },
+  { category: "ERL", label: "Asia High", type: "session_high", significance: 2, price: 120 },
+  { category: "ERL", label: "PDL", type: "previous_day_low", significance: 3, price: 80 },
 ];
 
 describe("classifyDraw", () => {

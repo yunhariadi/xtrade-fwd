@@ -28,8 +28,8 @@ describe("buildNarrative", () => {
       { high: 110, low: 100, highLabel: "asia_high", lowLabel: "asia_low" }
     );
     const targets: LiquidityTarget[] = [
-      { category: "IRL", label: "5m bullish FVG", type: "fvg", price: 100, low: 99, high: 101 },
-      { category: "ERL", label: "Asia High", type: "session_high", price: 120 },
+      { category: "IRL", label: "5m bullish FVG", type: "fvg", significance: 1, price: 100, low: 99, high: 101 },
+      { category: "ERL", label: "Asia High", type: "session_high", significance: 2, price: 120 },
     ];
     const draw = classifyDraw([c(100, 101, 99, 100), c(105, 106, 104, 105), c(110, 111, 109, 113)], targets);
 

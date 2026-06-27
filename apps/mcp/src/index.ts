@@ -122,9 +122,12 @@ server.registerTool(
 server.registerTool(
   "get_fvg_zones",
   {
-    title: "Get fair-value-gap zones",
+    title: "Get fair-value-gap zones with mitigation state",
     description:
-      "Active FVG zones tracked live in-memory. Returns [] until the API's market-data feed has populated them.",
+      "FVG zones tracked live in-memory. Each carries `status` (`active` | `mitigated`, with " +
+      "`mitigatedAt`) and `touched`/`touchedAt` (price entered the gap without fully filling it). " +
+      "Skip mitigated zones to avoid setups on used liquidity. Returns [] until the API's " +
+      "market-data feed has populated them.",
     inputSchema: { symbol, timeframe },
   },
   ({ symbol, timeframe }) => jsonTool(() => apiGet("/fvg", { symbol, timeframe })),
@@ -133,8 +136,12 @@ server.registerTool(
 server.registerTool(
   "get_order_blocks",
   {
-    title: "Get order blocks",
-    description: "Order blocks detected over recent candles (times in Unix seconds).",
+    title: "Get order blocks with mitigation/invalidation state",
+    description:
+      "Order blocks over recent candles. Each carries lifecycle state: `mitigated` (true once " +
+      "price tapped back into the zone, with `mitigatedAt`) and `status` (`active`, or `breaker` " +
+      "once price closed fully through it = invalidated, with `breakTime`). Skip mitigated/breaker " +
+      "blocks to avoid setups on used liquidity. Times in Unix seconds.",
     inputSchema: { symbol, timeframe },
   },
   ({ symbol, timeframe }) => jsonTool(() => apiGet("/order-blocks", { symbol, timeframe })),
@@ -149,6 +156,36 @@ server.registerTool(
     inputSchema: { symbol, timeframe },
   },
   ({ symbol, timeframe }) => jsonTool(() => apiGet("/liquidity", { symbol, timeframe })),
+);
+
+server.registerTool(
+  "get_mtf_alignment",
+  {
+    title: "Get multi-timeframe alignment in one call",
+    description:
+      "Collapses 5m/15m/1h/4h into a single alignment read so you don't have to call " +
+      "structure/bias per timeframe. Returns each timeframe's swing `bias` and last structure " +
+      "break, plus a resolved `direction` (majority side), `confidence` (0..1 fraction of TFs " +
+      "agreeing) and `fullyAligned`. Times are Unix seconds.",
+    inputSchema: { symbol: symbol.optional() },
+  },
+  ({ symbol }) => jsonTool(() => apiGet("/mtf-alignment", { symbol })),
+);
+
+server.registerTool(
+  "get_killzones",
+  {
+    title: "Get ICT session killzone windows (current + next)",
+    description:
+      "Each killzone (Asian, London Open, New York, London Close) resolved to its current-or-next " +
+      "occurrence in Unix seconds, with `active` and `secondsUntilStart`/`secondsUntilEnd`, plus " +
+      "the single `current` (active) and `next` (soonest upcoming) windows. Use to time analysis " +
+      "to session transitions. Pass `at` (Unix seconds) to resolve around a past/future moment.",
+    inputSchema: {
+      at: z.number().int().optional().describe("Unix seconds; resolve windows around this time instead of now"),
+    },
+  },
+  ({ at }) => jsonTool(() => apiGet("/killzones", { at })),
 );
 
 server.registerTool(

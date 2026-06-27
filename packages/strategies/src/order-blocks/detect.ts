@@ -10,6 +10,10 @@ export interface OrderBlock {
   fromTime: number;     // for rendering
   status: "active" | "breaker" | "broken";
   breakTime?: number;   // when it became a breaker
+  /** True once price has traded back into the OB zone (mitigation tap). */
+  mitigated: boolean;
+  /** Candle time (Unix seconds) of the first tap into the zone, if any. */
+  mitigatedAt?: number;
   useBody: boolean;     // whether boundaries use body or wick
 }
 
@@ -53,6 +57,7 @@ export function detectOrderBlocks(
               time: candles[j].time,
               fromTime: candles[j].time,
               status: "active",
+              mitigated: false,
               useBody,
             });
             break;
@@ -80,6 +85,7 @@ export function detectOrderBlocks(
               time: candles[j].time,
               fromTime: candles[j].time,
               status: "active",
+              mitigated: false,
               useBody,
             });
             break;
@@ -102,6 +108,19 @@ export function detectOrderBlocks(
       if (ob.direction === "bearish" && candles[i].close > ob.top) {
         ob.status = "breaker";
         ob.breakTime = candles[i].time;
+        break;
+      }
+    }
+  }
+
+  // Mitigation: the first candle after creation whose range taps into the zone
+  // (price returned to the OB) — distinct from a breaker, which closes through.
+  for (const ob of obs) {
+    for (let i = 0; i < candles.length; i++) {
+      if (candles[i].time <= ob.time) continue;
+      if (candles[i].high >= ob.bottom && candles[i].low <= ob.top) {
+        ob.mitigated = true;
+        ob.mitigatedAt = candles[i].time;
         break;
       }
     }

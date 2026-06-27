@@ -82,10 +82,46 @@ export const fvgSchema = {
 
 export const orderBlocksSchema = {
   tags: ["analysis"],
-  summary: "Order blocks",
+  summary: "Order blocks with mitigation/invalidation state",
   description:
-    "Order blocks detected over the most recent ~200 candles. Times are **Unix seconds**. Computed on each call.",
+    "Order blocks detected over the most recent ~200 candles. Each carries lifecycle state: " +
+    "`mitigated` (true once price tapped back into the zone, with `mitigatedAt`) and `status` " +
+    "(`active`, or `breaker` once price closed fully through it = invalidated, with `breakTime`). " +
+    "Skip blocks already mitigated/breakered to avoid setups on used liquidity. Times are " +
+    "**Unix seconds**. Computed on each call.",
   querystring: symbolTimeframeQuery,
+} as const;
+
+export const mtfAlignmentSchema = {
+  tags: ["analysis"],
+  summary: "Multi-timeframe directional alignment in one call",
+  description:
+    "Collapses 5m/15m/1h/4h into a single alignment read so an agent doesn't have to call " +
+    "structure/bias per timeframe. Returns each timeframe's swing `bias` and last structure " +
+    "break, plus a resolved `direction` (majority side), `confidence` (0..1 fraction agreeing), " +
+    "and `fullyAligned`. Times are **Unix seconds**. Computed on each call from closed candles.",
+  querystring: {
+    type: "object",
+    properties: {
+      symbol: { ...symbol, default: "BTCUSDT" },
+    },
+  },
+} as const;
+
+export const killzonesSchema = {
+  tags: ["analysis"],
+  summary: "ICT session killzone windows (current + next)",
+  description:
+    "Resolves each killzone (Asian, London Open, New York, London Close) to its current-or-next " +
+    "concrete occurrence in **Unix seconds**, with `active`, `secondsUntilStart`/`secondsUntilEnd`, " +
+    "plus the single `current` (active) and `next` (soonest upcoming) windows. Lets an agent time " +
+    "analysis to session transitions without hardcoding UTC hours. `at` overrides 'now' (Unix seconds).",
+  querystring: {
+    type: "object",
+    properties: {
+      at: { type: "integer", description: "Unix seconds; resolve windows around this time instead of now" },
+    },
+  },
 } as const;
 
 export const decisionPacketSchema = {
@@ -97,9 +133,11 @@ export const decisionPacketSchema = {
     "deterministic quant `score` (0-100, with `recommendation` gating: ignore < 50, " +
     "monitor_only 50-64, internal_alert 65-69, send_to_oc 70-79, send_to_oc_and_ha 80+) " +
     "and a short natural-language `narrative`. Designed so an agent decides from a small, " +
-    "high-signal packet instead of raw candles. `timestamp` and all level times are " +
-    "**Unix seconds**. Computed on each call from closed candles. NOTE: the volume " +
-    "profile is candle-approximated and the score weights are an untuned heuristic.",
+    "high-signal packet instead of raw candles. Each `liquidity.targets[]` carries a " +
+    "`significance` rank (4 weekly > 3 daily > 2 session > 1 internal/swing) for prioritising " +
+    "draws. `timestamp` and all level times are **Unix seconds**. Computed on each call from " +
+    "closed candles. NOTE: the volume profile is candle-approximated and the score weights are " +
+    "an untuned heuristic.",
   querystring: {
     type: "object",
     properties: {

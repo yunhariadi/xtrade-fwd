@@ -13,6 +13,11 @@ export interface LiquidityTarget {
   label: string;
   /** Sub-type tag, e.g. "fvg", "previous_day_high", "equal_highs". */
   type: string;
+  /**
+   * Ordinal significance for ranking draws: 4 = weekly, 3 = daily, 2 = session,
+   * 1 = internal/swing. Higher = stronger liquidity pool. Derived from `type`.
+   */
+  significance: number;
   /** Representative price (zone midpoint if a zone is given). */
   price: number;
   low?: number;

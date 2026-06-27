@@ -19,6 +19,7 @@ export * from "./mss-choch";
 export * from "./entry";
 export * from "./order-blocks";
 export * from "./sessions";
+export * from "./mtf";
 export * from "./volume-profile";
 export * from "./amd";
 export * from "./irl-erl";
