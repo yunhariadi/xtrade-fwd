@@ -4,13 +4,13 @@ import { dbRowToCandle } from "@ict-forward-lab/core";
 import {
   assembleDecisionPacket,
   buildCalibrationReport,
+  buildFvgRetraceSetup,
   buildFvgZones,
   evaluateOutcome,
   getKillzone,
   type CalibrationSample,
   type DecisionPacket,
   type ScoreSignals,
-  type SetupForOutcome,
 } from "@ict-forward-lab/strategies";
 import { HistoricalFetcher } from "../backtest/historical-fetcher";
 import { getExchange } from "../market-data/market-source";
@@ -28,6 +28,13 @@ const WARMUP_4H_CANDLES = 60; // ~10 days
  * against the following candles. The resulting (score, signals, outcome) samples
  * feed buildCalibrationReport — so you can see whether higher scores actually win
  * and which signals carry predictive lift.
+ *
+ * Setup model: the packet's layered bias picks the direction and the
+ * FVG-retracement model picks the execution (limit at a fresh gap edge, stop
+ * beyond the displacement leg, target at nearest ERL). This trades at a
+ * realistic cadence — unlike the strict A-Model (a handful of fires per year)
+ * or the old market-entry-every-bar fallback — and each gap is sampled once,
+ * matching the live engine's per-zone de-duplication.
  *
  * Mirrors BacktestRunner's at-time context construction to avoid look-ahead: at
  * bar i, only candles closed at or before bar i feed the packet; only candles
@@ -56,6 +63,9 @@ export class CalibrationRunner {
     ]);
 
     const samples: CalibrationSample[] = [];
+    // One sample per gap: consecutive bars would otherwise re-emit the same
+    // untouched zone as near-identical (correlated) samples.
+    const sampledZoneIds = new Set<string>();
 
     for (let i = 0; i < candles5m.length; i++) {
       const candle = candles5m[i];
@@ -70,6 +80,10 @@ export class CalibrationRunner {
       if (ctx4h.length < WARMUP_4H_CANDLES) continue;
 
       const ctx5m = candles5m.slice(0, i + 1).slice(-300);
+      // Reconstruct the 5m FVG zones the live tracker would hold at bar i
+      // (same window the packet sees) so IRL targets, active-FVG selection,
+      // and the fvg-dependent score signals fire in calibration as in live.
+      const fvgZones = buildFvgZones(ctx5m);
 
       const packet = assembleDecisionPacket({
         symbol: config.symbol,
@@ -77,19 +91,38 @@ export class CalibrationRunner {
         candles15m: candles15m.filter((c) => c.time <= t).slice(-300),
         candles1h: candles1h.filter((c) => c.time <= t).slice(-200),
         candles4h: ctx4h.slice(-200),
-        // Reconstruct the 5m FVG zones the live tracker would hold at bar i
-        // (same window the packet sees) so IRL targets, active-FVG selection,
-        // and the fvg-dependent score signals fire in calibration as in live.
-        fvgZones: buildFvgZones(ctx5m),
+        fvgZones,
       });
 
-      const setup = deriveCalibrationSetup(packet, candle.close, config.minRiskReward);
+      // Packet bias picks the direction; the FVG-retrace model executes it.
+      const direction = packet.risk.direction;
+      if (direction === "none") continue;
+
+      const setup = buildFvgRetraceSetup({
+        direction,
+        candles5m: ctx5m,
+        fvgZones,
+        erlTargets: packet.liquidity.targets
+          .filter((tgt) => tgt.category === "ERL")
+          .map((tgt) => tgt.price),
+      });
       if (!setup) continue;
+      if (setup.riskReward < config.minRiskReward) continue;
+      if (sampledZoneIds.has(setup.fvgZone.id)) continue;
+      sampledZoneIds.add(setup.fvgZone.id);
 
       const future = candles5m.slice(i + 1);
-      const outcome = evaluateOutcome(setup, future, {
-        horizonCandles: config.horizonCandles,
-      });
+      const outcome = evaluateOutcome(
+        {
+          direction,
+          entry: setup.entry,
+          stopLoss: setup.stopLoss,
+          takeProfit: setup.takeProfit,
+          time: packet.timestamp,
+        },
+        future,
+        { horizonCandles: config.horizonCandles }
+      );
 
       samples.push({
         score: packet.score.total,
@@ -124,66 +157,6 @@ export class CalibrationRunner {
     );
     return result.rows.map(dbRowToCandle);
   }
-}
-
-/**
- * Turn a packet into a measurable setup. Prefers the strict ICT model's
- * entry/stop/target; otherwise falls back to a market entry at `lastClose` with
- * the stop at the packet's invalidation (swept level / structure) and the target
- * at the nearest external liquidity. Returns null when no clean, RR-valid setup
- * can be formed.
- */
-function deriveCalibrationSetup(
-  packet: DecisionPacket,
-  lastClose: number,
-  minRiskReward: number
-): SetupForOutcome | null {
-  const direction = packet.risk.direction;
-  if (direction === "none") return null;
-  const isLong = direction === "long";
-
-  const entry = packet.risk.preferredEntry ?? lastClose;
-  const stopLoss = packet.risk.invalidation ?? inferStop(packet, isLong);
-  const takeProfit =
-    packet.risk.target1 ?? nearestErlPrice(packet, isLong, entry);
-  if (stopLoss == null || takeProfit == null) return null;
-
-  // Levels must sit on the correct side of entry.
-  if (isLong && !(stopLoss < entry && takeProfit > entry)) return null;
-  if (!isLong && !(stopLoss > entry && takeProfit < entry)) return null;
-
-  const risk = Math.abs(entry - stopLoss);
-  if (risk <= 0) return null;
-  const rr = Math.abs(takeProfit - entry) / risk;
-  if (rr < minRiskReward) return null;
-
-  return { direction, entry, stopLoss, takeProfit, time: packet.timestamp };
-}
-
-/** Stop from the swept level or last structure break, whichever sits on the stop side. */
-function inferStop(packet: DecisionPacket, isLong: boolean): number | null {
-  const candidates: number[] = [];
-  if (packet.amd.sweptLevel != null) candidates.push(packet.amd.sweptLevel);
-  if (packet.structure.last15m) candidates.push(packet.structure.last15m.breakLevel);
-  const ref = packet.risk.preferredEntry ?? packet.risk.target1;
-  const pivot = ref ?? packet.amd.sweptLevel ?? null;
-  if (pivot == null) return candidates[0] ?? null;
-  const onSide = candidates.filter((p) => (isLong ? p < pivot : p > pivot));
-  if (onSide.length === 0) return null;
-  // Nearest protective level to the pivot.
-  return isLong ? Math.max(...onSide) : Math.min(...onSide);
-}
-
-function nearestErlPrice(
-  packet: DecisionPacket,
-  isLong: boolean,
-  entry: number
-): number | null {
-  const erl = packet.liquidity.targets.filter((tgt) => tgt.category === "ERL");
-  const pool = isLong
-    ? erl.filter((tgt) => tgt.price > entry).sort((a, b) => a.price - b.price)
-    : erl.filter((tgt) => tgt.price < entry).sort((a, b) => b.price - a.price);
-  return pool[0]?.price ?? null;
 }
 
 /** Reconstruct boolean signals from the packet's score breakdown (fired = present). */
