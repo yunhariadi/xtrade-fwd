@@ -1,8 +1,18 @@
 import type { Pool } from "pg";
 import type { Candle } from "@ict-forward-lab/core";
 import { dbRowToCandle } from "@ict-forward-lab/core";
-import { ictModel2022Strategy, detect4HBias, detectLiquiditySweep, detectMSS, detectFvgEntry } from "@ict-forward-lab/strategies";
+import {
+  ictModel2022Strategy,
+  detect4HBias,
+  detectLiquiditySweep,
+  detectMSS,
+  detectFvgEntry,
+  assembleDecisionPacket,
+  getKillzone,
+  computePremiumDiscount,
+} from "@ict-forward-lab/strategies";
 import type { StrategyContext, StrategySignal, BiasDirection, LiquiditySweepResult, MSSResult } from "@ict-forward-lab/strategies";
+import type { SignalGateInfo } from "../forward-test/types";
 import type { WsServer } from "../market-data/ws-server";
 import { getExchange } from "../market-data/market-source";
 import { SignalStore } from "./signal-store";
@@ -61,6 +71,13 @@ export class StrategyRunner {
 
 
       if (signal.side !== "none") {
+        // Attach the confluence gate snapshot (score / killzone / premium-
+        // discount) computed from the SAME context the signal came from, so
+        // the forward-test engine can gate trade creation without re-fetching.
+        signal.metadata = {
+          ...signal.metadata,
+          gate: this.buildGateInfo(ctx, candle.time),
+        };
         this.signalStore.add(signal);
         this.options.wsServer.broadcastSignal(signal);
         return signal;
@@ -70,6 +87,31 @@ export class StrategyRunner {
     }
 
     return null;
+  }
+
+  /**
+   * Confluence snapshot for trade gating. Score comes from the full decision
+   * packet; the premium/discount dealing range uses the 1h candles (the
+   * README's designated premium/discount context timeframe).
+   */
+  private buildGateInfo(ctx: StrategyContext, signalTime: number): SignalGateInfo {
+    const packet = assembleDecisionPacket({
+      symbol: ctx.symbol,
+      candles5m: ctx.candles5m,
+      candles15m: ctx.candles15m,
+      candles1h: ctx.candles1h,
+      candles4h: ctx.candles4h,
+    });
+    const killzone = getKillzone(signalTime);
+    const pd = computePremiumDiscount(ctx.candles1h);
+
+    return {
+      score: packet.score.total,
+      grade: packet.score.grade,
+      recommendation: packet.score.recommendation,
+      killzone: killzone?.name ?? null,
+      premiumDiscount: pd ? { location: pd.location, zone: pd.zone } : null,
+    };
   }
 
   getSignalStore(): SignalStore {
@@ -177,8 +219,15 @@ export class StrategyRunner {
       return result.rows.map(dbRowToCandle);
     }
 
+    // Most recent `limit` candles (DESC + outer ASC re-sort). A plain
+    // `ORDER BY open_time ASC LIMIT n` would return the OLDEST n rows and
+    // freeze the live strategy on the earliest ingested window.
     const result = await this.options.pool.query(
-      `SELECT * FROM candles WHERE exchange = $4 AND symbol = $1 AND timeframe = $2 AND is_closed = true ORDER BY open_time ASC LIMIT $3`,
+      `SELECT * FROM (
+         SELECT * FROM candles
+         WHERE exchange = $4 AND symbol = $1 AND timeframe = $2 AND is_closed = true
+         ORDER BY open_time DESC LIMIT $3
+       ) sub ORDER BY open_time ASC`,
       [symbol.toUpperCase(), timeframe, limit, getExchange()]
     );
     return result.rows.map(dbRowToCandle);

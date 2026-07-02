@@ -60,6 +60,9 @@ const config: ForwardTestConfig = {
   minRiskReward: 2,
   tradeTimeoutCandles: 24,
   maxLeverage: 10,
+  minSetupScore: 0,             // gating exercised in its own describe block
+  requireKillzone: false,
+  requirePremiumDiscount: false,
 };
 
 function makeEngine(cfg: Partial<ForwardTestConfig> = {}) {
@@ -149,6 +152,90 @@ describe("ForwardTestEngine — signal acceptance", () => {
     const handle = makeEngine({ maxTradesPerDay: 0 });
     const trade = await handle.engine.onSignal(longSignal());
     expect(trade).toBeNull();
+  });
+});
+
+/** Gate metadata as the StrategyRunner attaches it (SignalGateInfo shape). */
+function withGate(
+  gate: Partial<{
+    score: number;
+    killzone: string | null;
+    location: "premium" | "discount" | "equilibrium";
+  }> = {},
+  fvgZoneId = "bullish-fvg-1000",
+): Partial<StrategySignal> {
+  return {
+    metadata: {
+      entry: { fvgZoneId },
+      signalEntry: 100,
+      gate: {
+        score: gate.score ?? 85,
+        grade: "A",
+        recommendation: "send_to_oc_and_ha",
+        killzone: gate.killzone === undefined ? "London Open" : gate.killzone,
+        premiumDiscount:
+          gate.location === undefined
+            ? { location: "discount", zone: "middle_discount" }
+            : { location: gate.location, zone: gate.location },
+      },
+    },
+  };
+}
+
+describe("ForwardTestEngine — confluence gating", () => {
+  it("rejects a signal whose score is below minSetupScore", async () => {
+    const { engine } = makeEngine({ minSetupScore: 70 });
+    const trade = await engine.onSignal(longSignal(withGate({ score: 65 })));
+    expect(trade).toBeNull();
+  });
+
+  it("accepts a signal at or above minSetupScore", async () => {
+    const { engine } = makeEngine({ minSetupScore: 70 });
+    const trade = await engine.onSignal(longSignal(withGate({ score: 70 })));
+    expect(trade).not.toBeNull();
+  });
+
+  it("rejects a signal outside the setup killzones", async () => {
+    const { engine } = makeEngine({ requireKillzone: true });
+    expect(await engine.onSignal(longSignal(withGate({ killzone: null }, "a")))).toBeNull();
+    expect(await engine.onSignal(longSignal(withGate({ killzone: "Asian" }, "b")))).toBeNull();
+  });
+
+  it("accepts a signal inside a setup killzone", async () => {
+    const { engine } = makeEngine({ requireKillzone: true });
+    const trade = await engine.onSignal(longSignal(withGate({ killzone: "New York" })));
+    expect(trade).not.toBeNull();
+  });
+
+  it("rejects a long in premium and a short in discount", async () => {
+    const { engine } = makeEngine({ requirePremiumDiscount: true });
+    expect(await engine.onSignal(longSignal(withGate({ location: "premium" }, "a")))).toBeNull();
+    const short = await engine.onSignal(
+      longSignal({
+        side: "short",
+        entry: 100,
+        stopLoss: 110,
+        takeProfit: 80,
+        ...withGate({ location: "discount" }, "b"),
+      }),
+    );
+    expect(short).toBeNull();
+  });
+
+  it("accepts a long in discount and either side at equilibrium", async () => {
+    const { engine } = makeEngine({ requirePremiumDiscount: true, maxOpenTrades: 2 });
+    expect(await engine.onSignal(longSignal(withGate({ location: "discount" }, "a")))).not.toBeNull();
+    expect(await engine.onSignal(longSignal(withGate({ location: "equilibrium" }, "b")))).not.toBeNull();
+  });
+
+  it("bypasses gating for signals without gate metadata", async () => {
+    const { engine } = makeEngine({
+      minSetupScore: 70,
+      requireKillzone: true,
+      requirePremiumDiscount: true,
+    });
+    const trade = await engine.onSignal(longSignal());
+    expect(trade).not.toBeNull();
   });
 });
 

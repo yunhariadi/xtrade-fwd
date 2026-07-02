@@ -59,6 +59,11 @@ export class BacktestRunner {
       minRiskReward: config.minRiskReward,
       tradeTimeoutCandles: config.tradeTimeoutCandles,
       maxLeverage: config.maxLeverage,
+      // Backtest signals carry no gate metadata (raw strategy output), so the
+      // confluence gates cannot apply here — disabled explicitly.
+      minSetupScore: 0,
+      requireKillzone: false,
+      requirePremiumDiscount: false,
     };
 
     const accountTracker = new AccountTracker(config.initialBalance);

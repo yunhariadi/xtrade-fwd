@@ -1,10 +1,17 @@
 import type { Candle } from "@ict-forward-lab/core";
 import type { StrategySignal } from "@ict-forward-lab/strategies";
 import type { WsServer } from "../market-data/ws-server";
-import type { ForwardTestConfig, ForwardTrade } from "./types";
+import type { ForwardTestConfig, ForwardTrade, SignalGateInfo } from "./types";
 import { TradeStore } from "./trade-store";
 import { AccountTracker } from "./account-tracker";
 import { calculatePositionSize } from "./position-sizer";
+
+/**
+ * Killzones in which ICT setups are considered tradeable. Matches the
+ * calibration runner's SETUP_KILLZONES so live gating and calibration stats
+ * describe the same population of setups.
+ */
+const TRADE_KILLZONES = new Set(["London Open", "New York"]);
 
 export interface ForwardTestEngineOptions {
   config: ForwardTestConfig;
@@ -121,6 +128,9 @@ export class ForwardTestEngine {
       return null;
     }
 
+    // Confluence gating (score / killzone / premium-discount) — see passesGates.
+    if (!this.passesGates(signal)) return null;
+
     // De-duplicate per setup: a single ICT setup (identified by its FVG zone)
     // must not produce multiple trades across consecutive candle closes.
     const signalId = this.deriveSignalId(signal);
@@ -195,6 +205,48 @@ export class ForwardTestEngine {
       console.error(`[ForwardTest] DB error creating trade: ${(err as Error).message}`);
       return null;
     }
+  }
+
+  /**
+   * Enforce the configured confluence gates against the signal's `gate`
+   * metadata (attached by the StrategyRunner at signal time). Signals without
+   * gate metadata pass — the live path always attaches it, so only tests and
+   * manual injections skip gating.
+   */
+  private passesGates(signal: StrategySignal): boolean {
+    const gate = signal.metadata?.gate as SignalGateInfo | undefined;
+    if (!gate) return true;
+
+    if (this.config.minSetupScore > 0 && gate.score < this.config.minSetupScore) {
+      console.warn(
+        `[ForwardTest] Rejected: setup score ${gate.score} (${gate.grade}) below minimum ${this.config.minSetupScore}`,
+      );
+      return false;
+    }
+
+    if (this.config.requireKillzone && (gate.killzone == null || !TRADE_KILLZONES.has(gate.killzone))) {
+      console.warn(
+        `[ForwardTest] Rejected: outside setup killzones (killzone=${gate.killzone ?? "none"})`,
+      );
+      return false;
+    }
+
+    if (this.config.requirePremiumDiscount && gate.premiumDiscount) {
+      const loc = gate.premiumDiscount.location;
+      // Longs must not be bought in premium; shorts must not be sold in
+      // discount. Equilibrium passes both directions.
+      const wrongSide =
+        (signal.side === "long" && loc === "premium") ||
+        (signal.side === "short" && loc === "discount");
+      if (wrongSide) {
+        console.warn(
+          `[ForwardTest] Rejected: ${signal.side} in ${loc} (zone=${gate.premiumDiscount.zone})`,
+        );
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /**

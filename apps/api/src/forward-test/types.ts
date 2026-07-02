@@ -19,6 +19,35 @@ export interface ForwardTestConfig {
   tradeTimeoutCandles: number;
   /** Notional cap as a multiple of account balance (margin-account realism). */
   maxLeverage: number;
+  /**
+   * Reject signals whose decision-packet score is below this (0 disables).
+   * Buckets: <50 ignore, 50-64 monitor, 65-69 internal, 70+ actionable.
+   */
+  minSetupScore: number;
+  /** Only trade signals that fired inside a setup killzone (London Open / New York). */
+  requireKillzone: boolean;
+  /** Reject longs in premium and shorts in discount (equilibrium passes both). */
+  requirePremiumDiscount: boolean;
+}
+
+/**
+ * Confluence snapshot attached to a signal's metadata (as `gate`) by the
+ * StrategyRunner at signal time. The forward-test engine enforces its
+ * configured gates against this. Signals without it (tests, manual injection)
+ * bypass gating — the live path always attaches it.
+ */
+export interface SignalGateInfo {
+  /** Decision-packet confluence score, 0-100. */
+  score: number;
+  grade: string;
+  recommendation: string;
+  /** Killzone name the signal candle closed in, or null when outside all. */
+  killzone: string | null;
+  /** Premium/discount location from the 1h dealing range, or null if uncomputable. */
+  premiumDiscount: {
+    location: "premium" | "discount" | "equilibrium";
+    zone: string;
+  } | null;
 }
 
 export interface ForwardTrade {
@@ -58,4 +87,7 @@ export const defaultForwardTestConfig: ForwardTestConfig = {
   minRiskReward: 2,
   tradeTimeoutCandles: 24,
   maxLeverage: 10,
+  minSetupScore: 70,
+  requireKillzone: true,
+  requirePremiumDiscount: true,
 };

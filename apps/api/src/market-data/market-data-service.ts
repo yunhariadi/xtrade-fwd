@@ -32,6 +32,15 @@ export interface MarketDataServiceOptions {
   fastify: FastifyInstance;
 }
 
+/**
+ * The forward-test engine simulates fills/exits/timeouts exclusively on this
+ * timeframe. Feeding it candles from higher timeframes is unsound: a live 4h/1d
+ * candle's high/low includes price action from BEFORE a trade existed (phantom
+ * fills), and every extra timeframe's close would inflate the per-trade candle
+ * counter that `tradeTimeoutCandles` is denominated in (5m bars).
+ */
+const EXECUTION_TIMEFRAME = "5m";
+
 export class MarketDataService {
   private source: MarketSource;
   private exchange: string;
@@ -229,31 +238,38 @@ export class MarketDataService {
       const signal = await this.strategyRunner.onCandleClosed(candle, symbol, timeframe);
 
       // Forward-test engine: evaluate the closing candle, forward the signal,
-      // then check timeouts.
-      try {
-        const engine = this.options.fastify.forwardTestEngine;
-        if (engine) {
-          // Evaluate existing pending/active trades against the final candle
-          // range BEFORE creating a trade from this candle's signal. This
-          // guarantees SL/TP/entry are checked on the close even if no live
-          // tick carried the same high/low, and avoids look-ahead on the
-          // candle that just generated the signal.
-          await engine.onTick(candle);
-          if (signal) await engine.onSignal(signal);
-          await engine.onCandleClosed(candle);
+      // then check timeouts. Only the execution timeframe drives the engine —
+      // see EXECUTION_TIMEFRAME.
+      if (timeframe === EXECUTION_TIMEFRAME) {
+        try {
+          const engine = this.options.fastify.forwardTestEngine;
+          if (engine) {
+            // Evaluate existing pending/active trades against the final candle
+            // range BEFORE creating a trade from this candle's signal. This
+            // guarantees SL/TP/entry are checked on the close even if no live
+            // tick carried the same high/low, and avoids look-ahead on the
+            // candle that just generated the signal.
+            await engine.onTick(candle);
+            if (signal) await engine.onSignal(signal);
+            await engine.onCandleClosed(candle);
+          }
+        } catch {
+          // Engine may not be initialized yet
         }
-      } catch {
-        // Engine may not be initialized yet
       }
     } else {
       this.wsServer.broadcast("candle:update", candle, symbol, timeframe);
 
-      // Forward-test engine: check entry/exit on every tick
-      try {
-        const engine = this.options.fastify.forwardTestEngine;
-        if (engine) await engine.onTick(candle);
-      } catch {
-        // Engine may not be initialized yet
+      // Forward-test engine: check entry/exit on every tick of the execution
+      // timeframe only. A live higher-timeframe candle's high/low spans hours
+      // and can predate the trade — using it would create phantom fills.
+      if (timeframe === EXECUTION_TIMEFRAME) {
+        try {
+          const engine = this.options.fastify.forwardTestEngine;
+          if (engine) await engine.onTick(candle);
+        } catch {
+          // Engine may not be initialized yet
+        }
       }
     }
   }

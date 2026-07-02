@@ -25,6 +25,15 @@ function envNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+/** Parse a boolean env var ("true"/"1"/"yes" → true, "false"/"0"/"no" → false). */
+function envBool(value: string | undefined, fallback: boolean): boolean {
+  if (value == null || value.trim() === "") return fallback;
+  const v = value.trim().toLowerCase();
+  if (v === "true" || v === "1" || v === "yes") return true;
+  if (v === "false" || v === "0" || v === "no") return false;
+  return fallback;
+}
+
 export const forwardTestPlugin = fp(async (fastify: FastifyInstance) => {
   const config: ForwardTestConfig = {
     initialBalance: envNumber(process.env.FORWARD_TEST_INITIAL_BALANCE, defaultForwardTestConfig.initialBalance),
@@ -36,6 +45,9 @@ export const forwardTestPlugin = fp(async (fastify: FastifyInstance) => {
     minRiskReward: envNumber(process.env.FORWARD_TEST_MIN_RR, defaultForwardTestConfig.minRiskReward),
     tradeTimeoutCandles: envNumber(process.env.FORWARD_TEST_TIMEOUT_CANDLES, defaultForwardTestConfig.tradeTimeoutCandles),
     maxLeverage: envNumber(process.env.FORWARD_TEST_MAX_LEVERAGE, defaultForwardTestConfig.maxLeverage),
+    minSetupScore: envNumber(process.env.FORWARD_TEST_MIN_SETUP_SCORE, defaultForwardTestConfig.minSetupScore),
+    requireKillzone: envBool(process.env.FORWARD_TEST_REQUIRE_KILLZONE, defaultForwardTestConfig.requireKillzone),
+    requirePremiumDiscount: envBool(process.env.FORWARD_TEST_REQUIRE_PREMIUM_DISCOUNT, defaultForwardTestConfig.requirePremiumDiscount),
   };
 
   const tradeStore = new TradeStore(fastify.db);
