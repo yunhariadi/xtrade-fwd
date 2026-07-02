@@ -8,14 +8,23 @@ import type {
 /**
  * Signed weights per confluence signal (from the data-brain design, §13).
  *
- * NOTE: the positive weights sum to +145, not 100 — they are an *untuned*
- * heuristic. We compute the raw signed sum then clamp to 0..100. These weights
- * should be calibrated against forward-test/backtest outcomes before being
- * trusted; treat the score as a relative ranking, not a probability.
+ * NOTE: the positive weights sum past 100 — they are a heuristic, not a
+ * probability. We compute the raw signed sum then clamp to 0..100; treat the
+ * score as a relative ranking.
+ *
+ * CALIBRATED 2026-07-02: four signals had their signs flipped because both
+ * calibration runs 4 and 5 (BTCUSDT Jan–Jul 2026, killzone samples) showed
+ * their win-rate lift consistently INVERTED vs. the design's assumption —
+ * BTC intraday behaved mean-reverting against these trend-following inputs:
+ *   htfBiasAligned        +15 → −15  (lift −9.1pp, n=158 with)
+ *   fvgAlignsVolumeProfile +10 → −10 (lift −9.6pp, n=1700 with)
+ *   priceWithPocDirection   +5 → −5  (lift −16.7pp, n=1752 with)
+ *   volumeProfileOpposes  −10 → +10  (lift +17.0pp, n=145 with)
+ * Re-validate these against future calibration runs before trusting further.
  */
 export const SCORE_WEIGHTS: Record<keyof ScoreSignals, number> = {
-  // Positive
-  htfBiasAligned: 15,
+  // Confluence signals (designed positive; flipped entries per calibration)
+  htfBiasAligned: -15,
   weeklyProfileSupports: 10,
   sessionProfileSupports: 10,
   amdPhaseClear: 10,
@@ -24,18 +33,18 @@ export const SCORE_WEIGHTS: Record<keyof ScoreSignals, number> = {
   mssConfirmed: 15,
   displacementPresent: 10,
   validFvg: 10,
-  fvgAlignsVolumeProfile: 10,
-  priceWithPocDirection: 5,
+  fvgAlignsVolumeProfile: -10,
+  priceWithPocDirection: -5,
   clearErlTarget: 10,
   rrAboveTwo: 10,
-  // Negative
+  // Caution signals (designed negative; flipped entries per calibration)
   againstWeeklyBias: -20,
   noClearAmd: -10,
   irlErlUnclear: -10,
   trappedInValueArea: -10,
   alreadyReachedErl: -20,
   lateInSession: -10,
-  volumeProfileOpposes: -10,
+  volumeProfileOpposes: 10,
   noCleanInvalidation: -20,
 };
 
