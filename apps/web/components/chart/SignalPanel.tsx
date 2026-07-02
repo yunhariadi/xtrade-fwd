@@ -8,7 +8,17 @@ interface StrategyStatus {
   sweep: { detected: boolean; type?: string; level?: number };
   mss: { detected: boolean; direction?: string; level?: number };
   fvgEntry: { detected: boolean; direction?: string; entry?: number };
+  score: { total: number; grade: string; recommendation: string } | null;
   lastEvaluatedAt: number | null;
+}
+
+/** Trade gate: the forward-test engine only takes setups scoring at least this. */
+const SCORE_GATE = 70;
+
+function scoreColor(total: number): string {
+  if (total >= SCORE_GATE) return "text-green-400";
+  if (total >= 50) return "text-amber-400";
+  return "text-red-400";
 }
 
 interface SignalPanelProps {
@@ -73,6 +83,29 @@ export function SignalPanel({ signals, symbol = "BTCUSDT", replayTime = null }: 
             </span>
           )}
         </div>
+
+        {status?.score && (
+          <div className="mb-3 flex items-center justify-between rounded border border-gray-800 bg-gray-900/60 px-2.5 py-2">
+            <div>
+              <div className="text-[10px] font-semibold uppercase text-gray-500">
+                Setup Score
+              </div>
+              <div className="text-[10px] text-gray-600">
+                {status.score.recommendation.replaceAll("_", " ")} · gate ≥ {SCORE_GATE}
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span
+                className={`text-xl font-bold tabular-nums ${scoreColor(status.score.total)}`}
+              >
+                {status.score.total}
+              </span>
+              <span className={`text-xs font-semibold ${scoreColor(status.score.total)}`}>
+                {status.score.grade}
+              </span>
+            </div>
+          </div>
+        )}
 
         {status ? (
           <div className="space-y-1.5">

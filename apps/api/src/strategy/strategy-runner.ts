@@ -40,6 +40,8 @@ export interface StrategyStatus {
   sweep: { detected: boolean; type?: string; level?: number };
   mss: { detected: boolean; direction?: string; level?: number };
   fvgEntry: { detected: boolean; direction?: string; entry?: number };
+  /** Decision-packet confluence score at the last evaluation (trade gate input). */
+  score: { total: number; grade: string; recommendation: string } | null;
   lastEvaluatedAt: number | null;
 }
 
@@ -56,6 +58,7 @@ export class StrategyRunner {
     sweep: { detected: false },
     mss: { detected: false },
     fvgEntry: { detected: false },
+    score: null,
     lastEvaluatedAt: null,
   };
 
@@ -87,8 +90,8 @@ export class StrategyRunner {
 
       const signal = this.buildRetraceSignal(ctx, packet, fvgZones, candle.time);
 
-      // Update status checklist
-      this.lastStatus = this.buildStatus(ctx, Date.now());
+      // Update status checklist (reuse this close's packet for the score)
+      this.lastStatus = this.buildStatus(ctx, Date.now(), packet);
 
 
       if (signal.side !== "none") {
@@ -233,7 +236,24 @@ export class StrategyRunner {
     return this.buildStatus(ctx, atTime * 1000);
   }
 
-  private buildStatus(ctx: StrategyContext, evaluatedAtMs: number): StrategyStatus {
+  private buildStatus(
+    ctx: StrategyContext,
+    evaluatedAtMs: number,
+    packet?: DecisionPacket,
+  ): StrategyStatus {
+    // Reuse the caller's packet when it has one (live close path); otherwise
+    // assemble it here (replay path) so the score tracks the playback head.
+    const pkt =
+      packet ??
+      assembleDecisionPacket({
+        symbol: ctx.symbol,
+        candles5m: ctx.candles5m,
+        candles15m: ctx.candles15m,
+        candles1h: ctx.candles1h,
+        candles4h: ctx.candles4h,
+        fvgZones: buildFvgZones(ctx.candles5m),
+      });
+
     const bias = detect4HBias(ctx.candles4h);
     const mss = detectMSS(ctx.candles15m);
     // Anchor the sweep to the MSS exactly as the strategy does — the most recent
@@ -269,6 +289,11 @@ export class StrategyRunner {
       fvgEntry: fvgEntry
         ? { detected: true, direction: fvgEntry.direction, entry: fvgEntry.entry }
         : { detected: false },
+      score: {
+        total: pkt.score.total,
+        grade: pkt.score.grade,
+        recommendation: pkt.score.recommendation,
+      },
       lastEvaluatedAt: evaluatedAtMs,
     };
   }
