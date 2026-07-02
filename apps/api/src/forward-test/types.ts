@@ -87,7 +87,10 @@ export const defaultForwardTestConfig: ForwardTestConfig = {
   minRiskReward: 2,
   tradeTimeoutCandles: 24,
   maxLeverage: 10,
-  minSetupScore: 70,
+  // 80 per calibration run 4 (2026-01-01..2026-07-01, 2265 samples): the 80+
+  // bucket was the only one that separated upward (WR .185 / avgR -.065 vs
+  // WR .116 / avgR -.435 for 70-79).
+  minSetupScore: 80,
   requireKillzone: true,
   requirePremiumDiscount: true,
 };
