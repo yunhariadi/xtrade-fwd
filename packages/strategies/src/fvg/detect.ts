@@ -1,4 +1,5 @@
 import type { Candle, FvgZone } from "@ict-forward-lab/core";
+import { checkMitigation, checkTouched } from "./mitigation";
 
 /**
  * Check if a bullish FVG exists at index i.
@@ -71,6 +72,38 @@ export function detectAllFvgs(candles: Candle[]): FvgZone[] {
 
     const bearish = createBearishFvgZone(candles, i);
     if (bearish) zones.push(bearish);
+  }
+
+  return zones;
+}
+
+/**
+ * Detect all FVG zones in a closed-candle window and resolve each zone's
+ * mitigation/touch state against the candles that followed it, in order.
+ * Equivalent to feeding the window through the live FvgTracker: the returned
+ * zones are what the tracker would hold after the last candle. Pure — use it
+ * to reconstruct `fvgZones` at a historical moment (replay/calibration)
+ * without look-ahead, as long as `candles` contains only bars closed at or
+ * before that moment.
+ */
+export function buildFvgZones(candles: Candle[]): FvgZone[] {
+  const zones = detectAllFvgs(candles);
+
+  for (const zone of zones) {
+    const zoneEndIndex = candles.findIndex((c) => c.time > zone.toTime);
+    if (zoneEndIndex === -1) continue;
+
+    for (let j = zoneEndIndex; j < candles.length; j++) {
+      if (checkMitigation(zone, candles[j])) {
+        zone.status = "mitigated";
+        zone.mitigatedAt = candles[j].time;
+        break;
+      }
+      if (!zone.touched && checkTouched(zone, candles[j])) {
+        zone.touched = true;
+        zone.touchedAt = candles[j].time;
+      }
+    }
   }
 
   return zones;

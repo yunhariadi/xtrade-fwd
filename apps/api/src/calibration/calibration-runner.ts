@@ -4,6 +4,7 @@ import { dbRowToCandle } from "@ict-forward-lab/core";
 import {
   assembleDecisionPacket,
   buildCalibrationReport,
+  buildFvgZones,
   evaluateOutcome,
   getKillzone,
   type CalibrationSample,
@@ -68,12 +69,18 @@ export class CalibrationRunner {
       const ctx4h = candles4h.filter((c) => c.time <= t);
       if (ctx4h.length < WARMUP_4H_CANDLES) continue;
 
+      const ctx5m = candles5m.slice(0, i + 1).slice(-300);
+
       const packet = assembleDecisionPacket({
         symbol: config.symbol,
-        candles5m: candles5m.slice(0, i + 1).slice(-300),
+        candles5m: ctx5m,
         candles15m: candles15m.filter((c) => c.time <= t).slice(-300),
         candles1h: candles1h.filter((c) => c.time <= t).slice(-200),
         candles4h: ctx4h.slice(-200),
+        // Reconstruct the 5m FVG zones the live tracker would hold at bar i
+        // (same window the packet sees) so IRL targets, active-FVG selection,
+        // and the fvg-dependent score signals fire in calibration as in live.
+        fvgZones: buildFvgZones(ctx5m),
       });
 
       const setup = deriveCalibrationSetup(packet, candle.close, config.minRiskReward);

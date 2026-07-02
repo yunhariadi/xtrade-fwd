@@ -2,7 +2,7 @@ import type { Candle, FvgZone, WsFvgMessage } from "@ict-forward-lab/core";
 import {
   createBullishFvgZone,
   createBearishFvgZone,
-  detectAllFvgs,
+  buildFvgZones,
   checkMitigation,
   checkTouched,
 } from "@ict-forward-lab/strategies";
@@ -82,30 +82,9 @@ export class FvgTracker {
 
   loadHistory(candles: Candle[], symbol: string, timeframe: string): void {
     const key = `${symbol}:${timeframe}`;
-    const detected = detectAllFvgs(candles);
-
-    // Process mitigation sequentially
-    for (const zone of detected) {
-      // Find candles after the zone was created
-      const zoneEndIndex = candles.findIndex((c) => c.time > zone.toTime);
-      if (zoneEndIndex === -1) continue;
-
-      for (let j = zoneEndIndex; j < candles.length; j++) {
-        if (zone.status !== "active") break;
-        if (checkMitigation(zone, candles[j])) {
-          zone.status = "mitigated";
-          zone.mitigatedAt = candles[j].time;
-          break;
-        }
-        if (!zone.touched && checkTouched(zone, candles[j])) {
-          zone.touched = true;
-          zone.touchedAt = candles[j].time;
-        }
-      }
-
-    }
-
-    this.zones.set(key, detected);
+    // Detection + sequential mitigation/touch resolution lives in the shared
+    // pure helper so the live tracker and the calibration replay agree.
+    this.zones.set(key, buildFvgZones(candles));
 
     // Set candle buffer to last 3 candles
     if (candles.length >= 3) {
