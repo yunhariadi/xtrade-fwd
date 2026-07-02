@@ -84,13 +84,15 @@ export const defaultForwardTestConfig: ForwardTestConfig = {
   slippagePercent: 0.02,
   maxOpenTrades: 1,
   maxTradesPerDay: 3,
-  minRiskReward: 2,
-  tradeTimeoutCandles: 24,
+  // 1.5 / 48 / 70 per calibration run 7 (fvg-retrace population, Jan-Jul
+  // 2026, 604 setups): ERL-targeted setups mostly land between 1.5R and 2R,
+  // outcomes were measured over a 48-bar (4h) horizon, and every score
+  // bucket >= 70 carried positive expectancy (70-79: WR .333 avgR +.302;
+  // 80+: WR .324 avgR +.166) while <50 was clearly negative.
+  minRiskReward: 1.5,
+  tradeTimeoutCandles: 48,
   maxLeverage: 10,
-  // 80 per calibration run 4 (2026-01-01..2026-07-01, 2265 samples): the 80+
-  // bucket was the only one that separated upward (WR .185 / avgR -.065 vs
-  // WR .116 / avgR -.435 for 70-79).
-  minSetupScore: 80,
+  minSetupScore: 70,
   requireKillzone: true,
   requirePremiumDiscount: true,
 };

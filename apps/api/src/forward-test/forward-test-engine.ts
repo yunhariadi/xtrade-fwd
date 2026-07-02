@@ -179,8 +179,8 @@ export class ForwardTestEngine {
     const trade: ForwardTrade = {
       id: "", // Will be assigned by DB
       signalId,
-      strategyName: "ict-model-2022",
-      strategyVersion: "1.0.0",
+      strategyName: (signal.metadata?.strategy as string) ?? "ict-model-2022",
+      strategyVersion: (signal.metadata?.strategyVersion as string) ?? "1.0.0",
       exchange: "binance",
       symbol: signal.symbol,
       side: signal.side as "long" | "short",

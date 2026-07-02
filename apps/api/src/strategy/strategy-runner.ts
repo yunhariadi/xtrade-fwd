@@ -2,16 +2,24 @@ import type { Pool } from "pg";
 import type { Candle } from "@ict-forward-lab/core";
 import { dbRowToCandle } from "@ict-forward-lab/core";
 import {
-  ictModel2022Strategy,
   detect4HBias,
   detectLiquiditySweep,
   detectMSS,
   detectFvgEntry,
   assembleDecisionPacket,
+  buildFvgRetraceSetup,
+  buildFvgZones,
   getKillzone,
   computePremiumDiscount,
 } from "@ict-forward-lab/strategies";
-import type { StrategyContext, StrategySignal, BiasDirection, LiquiditySweepResult, MSSResult } from "@ict-forward-lab/strategies";
+import type {
+  StrategyContext,
+  StrategySignal,
+  BiasDirection,
+  LiquiditySweepResult,
+  MSSResult,
+  DecisionPacket,
+} from "@ict-forward-lab/strategies";
 import type { SignalGateInfo } from "../forward-test/types";
 import type { WsServer } from "../market-data/ws-server";
 import { getExchange } from "../market-data/market-source";
@@ -64,7 +72,20 @@ export class StrategyRunner {
 
     try {
       const ctx = await this.buildContext(symbol);
-      const signal = ictModel2022Strategy(ctx);
+      // Reconstruct zones from the same window (matches the calibration
+      // harness exactly, and survives restarts unlike tracker memory).
+      const fvgZones = buildFvgZones(ctx.candles5m);
+
+      const packet = assembleDecisionPacket({
+        symbol: ctx.symbol,
+        candles5m: ctx.candles5m,
+        candles15m: ctx.candles15m,
+        candles1h: ctx.candles1h,
+        candles4h: ctx.candles4h,
+        fvgZones,
+      });
+
+      const signal = this.buildRetraceSignal(ctx, packet, fvgZones, candle.time);
 
       // Update status checklist
       this.lastStatus = this.buildStatus(ctx, Date.now());
@@ -76,7 +97,7 @@ export class StrategyRunner {
         // the forward-test engine can gate trade creation without re-fetching.
         signal.metadata = {
           ...signal.metadata,
-          gate: this.buildGateInfo(ctx, candle.time),
+          gate: this.buildGateInfo(ctx, packet, candle.time),
         };
         this.signalStore.add(signal);
         this.options.wsServer.broadcastSignal(signal);
@@ -90,18 +111,90 @@ export class StrategyRunner {
   }
 
   /**
+   * Live signal from the FVG-retrace model (calibration runs 6/7): the
+   * decision packet's layered bias picks the direction; execution is a limit
+   * at the freshest active, untouched FVG edge in that direction, stop beyond
+   * the displacement leg, target at the nearest ERL (2R fallback). Replaces
+   * the strict A-Model as the trade source — that model's full sweep→MSS→FVG
+   * sequence fired only a handful of times per year, far too rare to
+   * forward-test. Per-zone ids in the metadata keep the engine's de-dup
+   * semantics (one trade per gap).
+   */
+  private buildRetraceSignal(
+    ctx: StrategyContext,
+    packet: DecisionPacket,
+    fvgZones: ReturnType<typeof buildFvgZones>,
+    signalTimeSec: number,
+  ): StrategySignal {
+    const noneSignal: StrategySignal = {
+      side: "none",
+      symbol: ctx.symbol,
+      timeframe: "5m",
+      signalTime: signalTimeSec,
+      reasons: [],
+      drawings: [],
+    };
+
+    const direction = packet.risk.direction;
+    if (direction === "none") return noneSignal;
+
+    const setup = buildFvgRetraceSetup({
+      direction,
+      candles5m: ctx.candles5m,
+      fvgZones,
+      erlTargets: packet.liquidity.targets
+        .filter((t) => t.category === "ERL")
+        .map((t) => t.price),
+    });
+    if (!setup) return noneSignal;
+
+    const zone = setup.fvgZone;
+    return {
+      side: direction,
+      symbol: ctx.symbol,
+      timeframe: "5m",
+      signalTime: signalTimeSec,
+      entry: setup.entry,
+      stopLoss: setup.stopLoss,
+      takeProfit: setup.takeProfit,
+      riskReward: setup.riskReward,
+      reasons: [
+        `packet bias ${direction} (confidence ${(packet.bias.confidence * 100).toFixed(0)}%)`,
+        `fresh ${zone.direction} FVG ${zone.bottom.toFixed(1)}-${zone.top.toFixed(1)}`,
+        `stop beyond displacement leg at ${setup.stopLoss.toFixed(1)}`,
+        `target ${setup.takeProfit.toFixed(1)} (RR ${setup.riskReward.toFixed(2)})`,
+      ],
+      drawings: [
+        {
+          id: `fvg-${zone.id}`,
+          type: "box",
+          label: `${zone.direction} FVG`,
+          fromTime: zone.fromTime,
+          toTime: zone.toTime,
+          top: zone.top,
+          bottom: zone.bottom,
+          direction: zone.direction,
+        },
+      ],
+      metadata: {
+        strategy: "fvg-retrace",
+        strategyVersion: "1.0.0",
+        entry: { fvgZoneId: zone.id },
+        biasLayers: packet.bias,
+      },
+    };
+  }
+
+  /**
    * Confluence snapshot for trade gating. Score comes from the full decision
    * packet; the premium/discount dealing range uses the 1h candles (the
    * README's designated premium/discount context timeframe).
    */
-  private buildGateInfo(ctx: StrategyContext, signalTime: number): SignalGateInfo {
-    const packet = assembleDecisionPacket({
-      symbol: ctx.symbol,
-      candles5m: ctx.candles5m,
-      candles15m: ctx.candles15m,
-      candles1h: ctx.candles1h,
-      candles4h: ctx.candles4h,
-    });
+  private buildGateInfo(
+    ctx: StrategyContext,
+    packet: DecisionPacket,
+    signalTime: number,
+  ): SignalGateInfo {
     const killzone = getKillzone(signalTime);
     const pd = computePremiumDiscount(ctx.candles1h);
 
@@ -186,11 +279,13 @@ export class StrategyRunner {
    * evaluates exactly as it would have at that historical moment.
    */
   private async buildContext(symbol: string, atTime?: number): Promise<StrategyContext> {
+    // Window sizes match the calibration harness (and the decision-packet
+    // route) so live scoring/setups replicate what was calibrated.
     const [candles5m, candles15m, candles1h, candles4h] = await Promise.all([
-      this.fetchCandles(symbol, "5m", 100, atTime),
-      this.fetchCandles(symbol, "15m", 100, atTime),
-      this.fetchCandles(symbol, "1h", 50, atTime),
-      this.fetchCandles(symbol, "4h", 30, atTime),
+      this.fetchCandles(symbol, "5m", 300, atTime),
+      this.fetchCandles(symbol, "15m", 300, atTime),
+      this.fetchCandles(symbol, "1h", 200, atTime),
+      this.fetchCandles(symbol, "4h", 200, atTime),
     ]);
 
     return {
