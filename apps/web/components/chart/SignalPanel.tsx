@@ -15,6 +15,9 @@ interface StrategyStatus {
 /** Trade gate: the forward-test engine only takes setups scoring at least this. */
 const SCORE_GATE = 70;
 
+/** Signals shown per page in the Recent Signals list. */
+const SIGNALS_PER_PAGE = 10;
+
 function scoreColor(total: number): string {
   if (total >= SCORE_GATE) return "text-green-400";
   if (total >= 50) return "text-amber-400";
@@ -34,6 +37,19 @@ interface SignalPanelProps {
 
 export function SignalPanel({ signals, symbol = "BTCUSDT", replayTime = null }: SignalPanelProps) {
   const [status, setStatus] = useState<StrategyStatus | null>(null);
+  const [page, setPage] = useState(0);
+
+  const pageCount = Math.max(1, Math.ceil(signals.length / SIGNALS_PER_PAGE));
+
+  // Keep the page in range when the signal list shrinks (e.g. reconnect).
+  useEffect(() => {
+    setPage((p) => Math.min(p, pageCount - 1));
+  }, [pageCount]);
+
+  const pageSignals = signals.slice(
+    page * SIGNALS_PER_PAGE,
+    (page + 1) * SIGNALS_PER_PAGE
+  );
 
   // Live polling — only while not replaying.
   useEffect(() => {
@@ -70,9 +86,9 @@ export function SignalPanel({ signals, symbol = "BTCUSDT", replayTime = null }: 
 
 
   return (
-    <div className="overflow-y-auto max-h-full">
+    <div className="flex-1 min-h-0 flex flex-col">
       {/* Strategy Checklist */}
-      <div className="p-3 border-b border-gray-800">
+      <div className="shrink-0 p-3 border-b border-gray-800">
         <div className="flex items-center justify-between mb-2">
           <h3 className="text-xs font-semibold text-gray-400 uppercase">
             Confluence Checklist
@@ -145,18 +161,24 @@ export function SignalPanel({ signals, symbol = "BTCUSDT", replayTime = null }: 
       </div>
 
       {/* Signals List */}
-      <div className="p-3 border-b border-gray-800">
-        <h3 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+      <div className="shrink-0 flex items-center justify-between p-3 border-b border-gray-800">
+        <h3 className="text-xs font-semibold text-gray-400 uppercase">
           Recent Signals
         </h3>
+        {signals.length > 0 && (
+          <span className="text-[10px] text-gray-600 tabular-nums">
+            {signals.length}
+          </span>
+        )}
       </div>
 
+      <div className="flex-1 min-h-0 overflow-y-auto">
       {signals.length === 0 ? (
         <div className="p-3 text-center text-gray-500 text-xs">
           No signals yet. Waiting for all confluence to align...
         </div>
       ) : (
-        signals.map((signal, idx) => (
+        pageSignals.map((signal, idx) => (
           <div
             key={`${signal.signalTime}-${idx}`}
             className={`p-3 border-b border-gray-800 ${
@@ -198,6 +220,30 @@ export function SignalPanel({ signals, symbol = "BTCUSDT", replayTime = null }: 
             </div>
           </div>
         ))
+      )}
+      </div>
+
+      {/* Pagination */}
+      {pageCount > 1 && (
+        <div className="shrink-0 flex items-center justify-between border-t border-gray-800 px-3 py-2">
+          <button
+            onClick={() => setPage((p) => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="px-2 py-0.5 rounded text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            ← Prev
+          </button>
+          <span className="text-[10px] text-gray-500 tabular-nums">
+            Page {page + 1} / {pageCount}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            disabled={page >= pageCount - 1}
+            className="px-2 py-0.5 rounded text-xs text-gray-400 hover:text-gray-200 hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent"
+          >
+            Next →
+          </button>
+        </div>
       )}
     </div>
   );

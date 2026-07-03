@@ -231,8 +231,13 @@ export function CandlestickChart({ symbol, timeframe, indicators, alerts, onRepl
       }
     };
     window.addEventListener("resize", handleResize);
+    // Also track container size changes (e.g. the sidebar collapsing) which
+    // don't fire a window resize.
+    const resizeObserver = new ResizeObserver(handleResize);
+    resizeObserver.observe(containerRef.current);
 
     return () => {
+      resizeObserver.disconnect();
       window.removeEventListener("resize", handleResize);
       chart.remove();
       chartRef.current = null;

@@ -7,6 +7,7 @@ import { BacktestResults } from "../../components/backtest/BacktestResults";
 import { ReplayChart } from "../../components/backtest/ReplayChart";
 import { PlaybackControls } from "../../components/backtest/PlaybackControls";
 import { EquityCurve } from "../../components/backtest/EquityCurve";
+import { LogoutButton } from "../../components/LogoutButton";
 
 interface BacktestData {
   id: string;
@@ -88,12 +89,15 @@ export default function BacktestPage() {
           <h1 className="text-sm font-semibold text-gray-200">Backtest</h1>
           <span className="text-xs text-gray-500">BTCUSDT</span>
         </div>
-        <Link
-          href="/"
-          className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-        >
-          ← Live Chart
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+          >
+            ← Live Chart
+          </Link>
+          <LogoutButton />
+        </div>
       </header>
 
       <div className="p-4 space-y-4">

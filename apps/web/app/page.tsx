@@ -11,6 +11,7 @@ import { AlertPanel } from "../components/chart/AlertPanel";
 import { useSignalWebSocket } from "../hooks/useSignalWebSocket";
 import { useTradeWebSocket } from "../hooks/useTradeWebSocket";
 import { useAlertWebSocket, type TriggeredAlert } from "../hooks/useAlertWebSocket";
+import { LogoutButton } from "../components/LogoutButton";
 
 const INDICATOR_NAME: Record<string, string> = {
   fvg: "FVG",
@@ -45,6 +46,7 @@ export default function HomePage() {
   });
 
   const [sidebarTab, setSidebarTab] = useState<"signals" | "trades" | "alerts">("signals");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   // Unix-seconds head of the chart's bar replay; null when replay is off. Drives
   // the confluence checklist to evaluate as of the playback head.
   const [replayTime, setReplayTime] = useState<number | null>(null);
@@ -85,6 +87,7 @@ export default function HomePage() {
             Backtest
           </Link>
           <TimeframeSelector active={timeframe} onChange={setTimeframe} />
+          <LogoutButton />
         </div>
       </header>
       <div className="flex-1 flex">
@@ -98,44 +101,63 @@ export default function HomePage() {
           />
 
         </div>
-        <aside className="w-72 border-l border-gray-800 flex flex-col">
-          {/* Tab switcher */}
-          <div className="flex border-b border-gray-800">
-            <button
-              onClick={() => setSidebarTab("signals")}
-              className={`flex-1 px-3 py-2 text-xs font-semibold uppercase ${sidebarTab === "signals" ? "text-gray-200 border-b-2 border-blue-500" : "text-gray-500"}`}
-            >
-              Signals
-            </button>
-            <button
-              onClick={() => setSidebarTab("trades")}
-              className={`flex-1 px-3 py-2 text-xs font-semibold uppercase ${sidebarTab === "trades" ? "text-gray-200 border-b-2 border-blue-500" : "text-gray-500"}`}
-            >
-              Trades
-            </button>
-            <button
-              onClick={() => setSidebarTab("alerts")}
-              className={`flex-1 px-3 py-2 text-xs font-semibold uppercase ${sidebarTab === "alerts" ? "text-gray-200 border-b-2 border-blue-500" : "text-gray-500"}`}
-            >
-              Alerts
-            </button>
-          </div>
-          {/* Tab content */}
-          {sidebarTab === "signals" ? (
-            <SignalPanel signals={signals} symbol="BTCUSDT" replayTime={replayTime} />
-          ) : sidebarTab === "trades" ? (
-            <TradePanel activeTrades={activeTrades} recentTrades={recentTrades} balance={balance} />
-          ) : (
-            <AlertPanel
-              alerts={alerts}
-              symbol="BTCUSDT"
-              timeframe={timeframe}
-              onCreate={createAlert}
-              onCreateIndicator={createIndicatorAlert}
-              onDelete={deleteAlert}
-            />
-          )}
-        </aside>
+        {sidebarOpen ? (
+          <aside className="w-72 border-l border-gray-800 flex flex-col">
+            {/* Tab switcher */}
+            <div className="flex items-stretch border-b border-gray-800">
+              <button
+                onClick={() => setSidebarTab("signals")}
+                className={`flex-1 px-3 py-2 text-xs font-semibold uppercase ${sidebarTab === "signals" ? "text-gray-200 border-b-2 border-blue-500" : "text-gray-500"}`}
+              >
+                Signals
+              </button>
+              <button
+                onClick={() => setSidebarTab("trades")}
+                className={`flex-1 px-3 py-2 text-xs font-semibold uppercase ${sidebarTab === "trades" ? "text-gray-200 border-b-2 border-blue-500" : "text-gray-500"}`}
+              >
+                Trades
+              </button>
+              <button
+                onClick={() => setSidebarTab("alerts")}
+                className={`flex-1 px-3 py-2 text-xs font-semibold uppercase ${sidebarTab === "alerts" ? "text-gray-200 border-b-2 border-blue-500" : "text-gray-500"}`}
+              >
+                Alerts
+              </button>
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="px-2 text-gray-600 hover:text-gray-200 border-l border-gray-800"
+                title="Hide panel"
+                aria-label="Hide panel"
+              >
+                »
+              </button>
+            </div>
+            {/* Tab content */}
+            {sidebarTab === "signals" ? (
+              <SignalPanel signals={signals} symbol="BTCUSDT" replayTime={replayTime} />
+            ) : sidebarTab === "trades" ? (
+              <TradePanel activeTrades={activeTrades} recentTrades={recentTrades} balance={balance} />
+            ) : (
+              <AlertPanel
+                alerts={alerts}
+                symbol="BTCUSDT"
+                timeframe={timeframe}
+                onCreate={createAlert}
+                onCreateIndicator={createIndicatorAlert}
+                onDelete={deleteAlert}
+              />
+            )}
+          </aside>
+        ) : (
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="w-6 border-l border-gray-800 flex items-center justify-center text-gray-600 hover:text-gray-200 hover:bg-gray-900/60"
+            title="Show panel"
+            aria-label="Show panel"
+          >
+            «
+          </button>
+        )}
       </div>
 
       {/* Alert-triggered toast */}
