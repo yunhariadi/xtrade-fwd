@@ -8,6 +8,19 @@ interface TradePanelProps {
   balance: number;
 }
 
+/** Agent shadow trades — isolated from the strategy account, flagged in metadata. */
+function isShadow(trade: Trade): boolean {
+  return trade.metadata?.shadow === true;
+}
+
+function ShadowBadge() {
+  return (
+    <span className="px-1 py-px rounded text-[9px] font-semibold tracking-wide bg-purple-500/20 text-purple-300 border border-purple-500/40">
+      SHADOW
+    </span>
+  );
+}
+
 export function TradePanel({ activeTrades, recentTrades, balance }: TradePanelProps) {
   return (
     <div className="overflow-y-auto max-h-full">
@@ -64,8 +77,9 @@ function ActiveTradeCard({ trade }: { trade: Trade }) {
   return (
     <div className={`p-2 mb-1 rounded bg-gray-900 border-l-2 ${trade.side === "long" ? "border-l-green-500" : "border-l-red-500"}`}>
       <div className="flex items-center justify-between mb-1">
-        <span className={`text-xs font-bold uppercase ${trade.side === "long" ? "text-green-400" : "text-red-400"}`}>
+        <span className={`flex items-center gap-1.5 text-xs font-bold uppercase ${trade.side === "long" ? "text-green-400" : "text-red-400"}`}>
           {trade.side} {trade.status === "pending" ? "(pending)" : ""}
+          {isShadow(trade) && <ShadowBadge />}
         </span>
         <span className="text-xs text-gray-500">{trade.positionSize.toFixed(4)}</span>
       </div>
@@ -92,8 +106,9 @@ function ClosedTradeCard({ trade }: { trade: Trade }) {
   return (
     <div className="p-2 mb-1 rounded bg-gray-900/50 text-xs">
       <div className="flex items-center justify-between">
-        <span className={`font-bold uppercase ${trade.side === "long" ? "text-green-400/60" : "text-red-400/60"}`}>
+        <span className={`flex items-center gap-1.5 font-bold uppercase ${trade.side === "long" ? "text-green-400/60" : "text-red-400/60"}`}>
           {trade.side}
+          {isShadow(trade) && <ShadowBadge />}
         </span>
         <span className={`font-semibold ${pnlColor}`}>
           {(trade.pnl ?? 0) > 0 ? "+" : ""}{trade.pnl?.toFixed(2) || "0.00"}

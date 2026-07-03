@@ -19,6 +19,9 @@ export interface Trade {
   pnl?: number;
   pnlPercent?: number;
   rrResult?: number;
+  strategyName?: string;
+  /** Engine metadata; `shadow: true` marks agent shadow trades. */
+  metadata?: Record<string, unknown> | null;
   createdAt: number;
   updatedAt: number;
 }
