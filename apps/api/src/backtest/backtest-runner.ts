@@ -64,6 +64,8 @@ export class BacktestRunner {
       minSetupScore: 0,
       requireKillzone: false,
       requirePremiumDiscount: false,
+      // Shadow trades are a live-engine concept; backtests never receive them.
+      maxOpenShadowTrades: 0,
     };
 
     const accountTracker = new AccountTracker(config.initialBalance);

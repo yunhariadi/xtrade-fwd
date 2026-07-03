@@ -63,6 +63,7 @@ const config: ForwardTestConfig = {
   minSetupScore: 0,             // gating exercised in its own describe block
   requireKillzone: false,
   requirePremiumDiscount: false,
+  maxOpenShadowTrades: 5,
 };
 
 function makeEngine(cfg: Partial<ForwardTestConfig> = {}) {
@@ -345,5 +346,101 @@ describe("ForwardTestEngine — concurrency & lifecycle", () => {
     expect(closed.status).toBe("closed_manual");
     // PnL = (110 - 100) * 10 = 100
     expect(account.getBalance()).toBe(10_100);
+  });
+});
+
+describe("ForwardTestEngine — agent shadow trades", () => {
+  /** A coherent long shadow request: entry 100, SL 90, TP 120. */
+  function shadowReq(overrides: Record<string, unknown> = {}) {
+    return {
+      symbol: "BTCUSDT",
+      side: "long" as const,
+      entry: 100,
+      stopLoss: 90,
+      takeProfit: 120,
+      entryType: "limit" as const,
+      ...overrides,
+    };
+  }
+
+  it("fills a limit shadow trade on retrace and auto-closes at TP without touching the account", async () => {
+    const { engine, account } = makeEngine();
+    const trade = await engine.openShadowTrade(shadowReq());
+    expect(trade.status).toBe("pending");
+    expect(trade.strategyName).toBe("hermes-shadow");
+
+    await engine.onTick(candle(1200, 104, 106, 99, 103)); // low 99 ≤ 100 → fill
+    expect(engine.getOpenTrades()[0].status).toBe("active");
+
+    await engine.onTick(candle(1300, 110, 121, 108, 119)); // high ≥ TP 120
+    expect(engine.getOpenTrades().length).toBe(0);
+    // Shadow PnL (+200) must NOT move the strategy account.
+    expect(account.getBalance()).toBe(10_000);
+  });
+
+  it("auto-closes at SL, also without touching the account", async () => {
+    const { engine, account } = makeEngine();
+    await engine.openShadowTrade(shadowReq());
+    await engine.onTick(candle(1200, 104, 106, 99, 103)); // fill at 100
+    await engine.onTick(candle(1300, 99, 100, 89, 91)); // low ≤ SL 90
+    expect(engine.getOpenTrades().length).toBe(0);
+    expect(account.getBalance()).toBe(10_000);
+  });
+
+  it("fills a market shadow trade at the next tick's close", async () => {
+    const { engine } = makeEngine();
+    await engine.openShadowTrade(shadowReq({ entryType: "market" }));
+
+    await engine.onTick(candle(1200, 105, 106, 104, 105.5));
+    const open = engine.getOpenTrades()[0];
+    expect(open.status).toBe("active");
+    expect(open.entryPrice).toBe(105.5); // observed price, not the quoted 100
+  });
+
+  it("does not consume the strategy's open-trade slot", async () => {
+    const { engine } = makeEngine({ maxOpenTrades: 1 });
+    await engine.openShadowTrade(shadowReq());
+
+    // The strategy's own signal must still get its slot.
+    const strategyTrade = await engine.onSignal(longSignal());
+    expect(strategyTrade).not.toBeNull();
+  });
+
+  it("caps concurrent shadow trades at maxOpenShadowTrades", async () => {
+    const { engine } = makeEngine({ maxOpenShadowTrades: 1 });
+    await engine.openShadowTrade(shadowReq({ clientOrderId: "a" }));
+    await expect(engine.openShadowTrade(shadowReq({ clientOrderId: "b" }))).rejects.toThrow(
+      /max open shadow trades/,
+    );
+  });
+
+  it("rejects incoherent price geometry", async () => {
+    const { engine } = makeEngine();
+    await expect(
+      engine.openShadowTrade(shadowReq({ stopLoss: 110 })), // long with SL above entry
+    ).rejects.toThrow(/long requires/);
+    await expect(
+      engine.openShadowTrade(shadowReq({ side: "short" })), // short with long geometry
+    ).rejects.toThrow(/short requires/);
+  });
+
+  it("replaying a clientOrderId returns the existing open trade", async () => {
+    const { engine } = makeEngine();
+    const first = await engine.openShadowTrade(shadowReq({ clientOrderId: "retry-1" }));
+    const second = await engine.openShadowTrade(shadowReq({ clientOrderId: "retry-1" }));
+    expect(second.id).toBe(first.id);
+    expect(engine.getOpenTrades().length).toBe(1);
+  });
+
+  it("honors a per-trade timeoutCandles override", async () => {
+    // Engine default is 24 bars; the shadow trade asks for 2.
+    const { engine } = makeEngine();
+    await engine.openShadowTrade(shadowReq({ timeoutCandles: 2 }));
+    await engine.onTick(candle(1100, 104, 106, 99, 103)); // fill at 100
+
+    await engine.onCandleClosed(candle(1200, 105, 106, 104, 105));
+    expect(engine.getOpenTrades().length).toBe(1);
+    await engine.onCandleClosed(candle(1300, 105, 106, 104, 105));
+    expect(engine.getOpenTrades().length).toBe(0); // timed out at 2 bars
   });
 });

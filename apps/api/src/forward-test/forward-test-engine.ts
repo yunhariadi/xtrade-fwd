@@ -1,7 +1,13 @@
+import { randomUUID } from "node:crypto";
 import type { Candle } from "@ict-forward-lab/core";
 import type { StrategySignal } from "@ict-forward-lab/strategies";
 import type { WsServer } from "../market-data/ws-server";
-import type { ForwardTestConfig, ForwardTrade, SignalGateInfo } from "./types";
+import type {
+  ForwardTestConfig,
+  ForwardTrade,
+  ShadowTradeRequest,
+  SignalGateInfo,
+} from "./types";
 import { TradeStore } from "./trade-store";
 import { AccountTracker } from "./account-tracker";
 import { calculatePositionSize } from "./position-sizer";
@@ -12,6 +18,11 @@ import { calculatePositionSize } from "./position-sizer";
  * describe the same population of setups.
  */
 const TRADE_KILLZONES = new Set(["London Open", "New York"]);
+
+/** Agent shadow trades are isolated from the live strategy's account/limits. */
+function isShadowTrade(trade: ForwardTrade): boolean {
+  return trade.metadata?.shadow === true;
+}
 
 export interface ForwardTestEngineOptions {
   config: ForwardTestConfig;
@@ -144,8 +155,11 @@ export class ForwardTestEngine {
       return null;
     }
 
-    // Check max open trades
-    const openCount = this.openTrades.size;
+    // Check max open trades. Shadow trades have their own cap and must not
+    // block the live strategy's slot.
+    const openCount = Array.from(this.openTrades.values()).filter(
+      (t) => !isShadowTrade(t),
+    ).length;
     if (openCount >= this.config.maxOpenTrades) {
       return null;
     }
@@ -205,6 +219,102 @@ export class ForwardTestEngine {
       console.error(`[ForwardTest] DB error creating trade: ${(err as Error).message}`);
       return null;
     }
+  }
+
+  /**
+   * Open an agent shadow trade (Hermes). Runs through the same tick lifecycle
+   * as strategy trades — entry fill, SL/TP auto-close, timeout — but is fully
+   * isolated from the live forward-test: no confluence gates or RR minimum,
+   * a separate open-trade cap, position sized against the fixed
+   * initialBalance, and PnL never applied to the shared account.
+   * Throws on invalid input; the route maps that to a 400.
+   */
+  async openShadowTrade(req: ShadowTradeRequest): Promise<ForwardTrade> {
+    return this.enqueue(() => this.handleShadowTrade(req));
+  }
+
+  private async handleShadowTrade(req: ShadowTradeRequest): Promise<ForwardTrade> {
+    const { side, entry, stopLoss, takeProfit } = req;
+
+    if (!(entry > 0) || !(stopLoss > 0) || !(takeProfit > 0)) {
+      throw new Error("entry, stopLoss and takeProfit must be positive numbers");
+    }
+    if (side === "long" && !(stopLoss < entry && entry < takeProfit)) {
+      throw new Error("long requires stopLoss < entry < takeProfit");
+    }
+    if (side === "short" && !(takeProfit < entry && entry < stopLoss)) {
+      throw new Error("short requires takeProfit < entry < stopLoss");
+    }
+
+    // Idempotency: replaying a clientOrderId returns the still-open trade
+    // instead of double-entering (agent retries after a network timeout).
+    const signalId = `shadow-${req.clientOrderId ?? randomUUID()}`;
+    if (this.seenSignalIds.has(signalId)) {
+      const existing = Array.from(this.openTrades.values()).find(
+        (t) => t.signalId === signalId,
+      );
+      if (existing) return existing;
+      throw new Error(`clientOrderId already used: ${req.clientOrderId}`);
+    }
+
+    const openShadowCount = Array.from(this.openTrades.values()).filter(
+      isShadowTrade,
+    ).length;
+    if (openShadowCount >= this.config.maxOpenShadowTrades) {
+      throw new Error(
+        `max open shadow trades reached (${this.config.maxOpenShadowTrades})`,
+      );
+    }
+
+    // Size against the FIXED initial balance so every shadow trade risks the
+    // same amount — results stay comparable in R and independent of the live
+    // strategy's equity curve.
+    const { positionSize, riskAmount } = calculatePositionSize({
+      accountBalance: this.config.initialBalance,
+      riskPercent: this.config.riskPerTradePercent,
+      entry,
+      stopLoss,
+      maxLeverage: this.config.maxLeverage,
+    });
+    if (positionSize === 0) {
+      throw new Error("position size is zero (stop too far for the leverage cap)");
+    }
+
+    const agent = req.agent ?? "hermes";
+    const now = Date.now();
+
+    const trade: ForwardTrade = {
+      id: "",
+      signalId,
+      strategyName: `${agent}-shadow`,
+      strategyVersion: "1.0.0",
+      exchange: "binance",
+      symbol: req.symbol.toUpperCase(),
+      side,
+      status: "pending",
+      stopLoss,
+      takeProfit,
+      riskAmount,
+      positionSize,
+      notes: req.notes,
+      metadata: {
+        shadow: true,
+        agent,
+        entryType: req.entryType,
+        signalEntry: entry,
+        ...(req.timeoutCandles != null ? { timeoutCandles: req.timeoutCandles } : {}),
+        ...(req.clientOrderId != null ? { clientOrderId: req.clientOrderId } : {}),
+      },
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const persisted = await this.tradeStore.create(trade);
+    this.openTrades.set(persisted.id, persisted);
+    this.candleCounters.set(persisted.id, 0);
+    this.rememberSignalId(signalId);
+    this.wsServer.broadcastTrade("trade:created", persisted);
+    return persisted;
   }
 
   /**
@@ -295,7 +405,12 @@ export class ForwardTestEngine {
       const count = (this.candleCounters.get(id) ?? 0) + 1;
       this.candleCounters.set(id, count);
 
-      if (count >= this.config.tradeTimeoutCandles) {
+      // Shadow trades may carry their own horizon (metadata.timeoutCandles).
+      const timeoutLimit =
+        (trade.metadata?.timeoutCandles as number | undefined) ??
+        this.config.tradeTimeoutCandles;
+
+      if (count >= timeoutLimit) {
         if (trade.status === "pending") {
           // Expire pending trade
           trade.status = "expired";
@@ -388,10 +503,17 @@ export class ForwardTestEngine {
   // --- Private helpers ---
 
   private async checkEntry(trade: ForwardTrade, candle: Candle): Promise<void> {
-    const entryTarget = this.getSignalEntry(trade);
+    let entryTarget = this.getSignalEntry(trade);
     let triggered = false;
 
-    if (trade.side === "long") {
+    if (trade.metadata?.entryType === "market") {
+      // Market-style shadow entry: fill at the first observed price rather
+      // than trusting the agent's quoted entry. The same-candle exit check
+      // that follows uses this 5m bar's full range (which can predate the
+      // fill) — SL wins ties, consistent with the limit-fill policy above.
+      entryTarget = candle.close;
+      triggered = true;
+    } else if (trade.side === "long") {
       // Long is a retracement (limit) entry at the top edge of a bullish FVG.
       // Price sits above the gap after it forms, so the fill happens when price
       // retraces DOWN into the level: candle low reaches the entry price.
@@ -512,8 +634,12 @@ export class ForwardTestEngine {
       status = "closed_breakeven";
     }
 
-    // Calculate percentages
-    const balance = this.accountTracker.getBalance();
+    // Calculate percentages. Shadow trades are measured against the fixed
+    // initial balance they were sized from, not the live strategy's equity.
+    const shadow = isShadowTrade(trade);
+    const balance = shadow
+      ? this.config.initialBalance
+      : this.accountTracker.getBalance();
     const pnlPercent = balance > 0 ? (netPnl / balance) * 100 : 0;
     const rrResult = trade.riskAmount > 0 ? netPnl / trade.riskAmount : 0;
 
@@ -527,8 +653,11 @@ export class ForwardTestEngine {
     trade.rrResult = rrResult;
     trade.updatedAt = Date.now();
 
-    // Apply PnL to account
-    this.accountTracker.applyPnl(netPnl);
+    // Apply PnL to account — never for shadow trades, which must not move
+    // the live strategy's balance (that would contaminate the forward-test).
+    if (!shadow) {
+      this.accountTracker.applyPnl(netPnl);
+    }
 
     // Remove from open trades
     this.openTrades.delete(trade.id);

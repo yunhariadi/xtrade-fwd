@@ -290,6 +290,74 @@ server.registerTool(
 );
 
 server.registerTool(
+  "place_shadow_trade",
+  {
+    title: "Place a shadow trade (auto-managed SL/TP)",
+    description:
+      "Open a simulated trade that the live engine manages on real 5m ticks. A `limit` entry fills " +
+      "when price retraces to `entry` (long: low ≤ entry, short: high ≥ entry); a `market` entry " +
+      "fills at the next tick's real price. Once filled, stopLoss/takeProfit resolve AUTOMATICALLY " +
+      "(if one bar reaches both, SL wins) and the trade times out after `timeoutCandles` 5m bars. " +
+      "Geometry must be coherent: long needs stopLoss < entry < takeProfit; short the reverse. " +
+      "Shadow trades are isolated from the strategy forward-test (own cap, fixed sizing, PnL never " +
+      "touches the account balance). Pass a unique clientOrderId so retries don't double-enter. " +
+      "Track the result with get_forward_trades (your trades have strategyName '<agent>-shadow').",
+    inputSchema: {
+      symbol,
+      side: z.enum(["long", "short"]),
+      entry: z.number().positive().describe("Entry price (limit level, or reference for market)"),
+      stopLoss: z.number().positive(),
+      takeProfit: z.number().positive(),
+      entryType: z
+        .enum(["limit", "market"])
+        .default("limit")
+        .describe("limit = fill on retrace to entry; market = fill at next observed tick"),
+      timeoutCandles: z
+        .number()
+        .int()
+        .min(1)
+        .max(2016)
+        .default(288)
+        .describe("Auto-close horizon in 5m bars (288 = 24h, max 2016 = 1 week)"),
+      clientOrderId: z.string().max(128).optional().describe("Idempotency key for safe retries"),
+      notes: z.string().max(1000).optional().describe("Trade rationale, stored on the trade"),
+    },
+  },
+  (args) => jsonTool(() => apiPost("/forward-trades/shadow", { ...args, agent: "hermes" })),
+);
+
+server.registerTool(
+  "close_shadow_trade",
+  {
+    title: "Manually close an active shadow trade",
+    description:
+      "Close an ACTIVE (filled) trade now at currentPrice — get the price from get_ticker first. " +
+      "Only close trades you created (strategyName ends in '-shadow'); other trades belong to the " +
+      "live strategy. Pending trades must be cancelled with cancel_shadow_trade instead.",
+    inputSchema: {
+      id: z.string().describe("Trade id from place_shadow_trade / get_forward_trades"),
+      currentPrice: z.number().positive().describe("Current market price (see get_ticker)"),
+    },
+  },
+  ({ id, currentPrice }) =>
+    jsonTool(() => apiPost(`/forward-trades/${encodeURIComponent(id)}/manual-close`, { currentPrice })),
+);
+
+server.registerTool(
+  "cancel_shadow_trade",
+  {
+    title: "Cancel a pending (unfilled) shadow trade",
+    description:
+      "Cancel a PENDING trade whose limit entry has not filled yet. Only cancel trades you created " +
+      "(strategyName ends in '-shadow'). Active trades must be closed with close_shadow_trade instead.",
+    inputSchema: {
+      id: z.string().describe("Trade id from place_shadow_trade / get_forward_trades"),
+    },
+  },
+  ({ id }) => jsonTool(() => apiPost(`/forward-trades/${encodeURIComponent(id)}/cancel`, {})),
+);
+
+server.registerTool(
   "list_backtests",
   {
     title: "List recent backtest result summaries",

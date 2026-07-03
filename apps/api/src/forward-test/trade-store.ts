@@ -183,8 +183,11 @@ export class TradeStore {
   }
 
   async getTodayTradeCount(): Promise<number> {
+    // Agent shadow trades don't count against the strategy's daily budget.
     const result = await this.pool.query<{ count: string }>(
-      `SELECT COUNT(*) as count FROM forward_trades WHERE created_at >= (now() AT TIME ZONE 'UTC')::date`,
+      `SELECT COUNT(*) as count FROM forward_trades
+       WHERE created_at >= (now() AT TIME ZONE 'UTC')::date
+         AND COALESCE((metadata->>'shadow')::boolean, false) = false`,
     );
     return Number(result.rows[0].count);
   }

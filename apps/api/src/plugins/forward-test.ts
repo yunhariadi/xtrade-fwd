@@ -48,16 +48,18 @@ export const forwardTestPlugin = fp(async (fastify: FastifyInstance) => {
     minSetupScore: envNumber(process.env.FORWARD_TEST_MIN_SETUP_SCORE, defaultForwardTestConfig.minSetupScore),
     requireKillzone: envBool(process.env.FORWARD_TEST_REQUIRE_KILLZONE, defaultForwardTestConfig.requireKillzone),
     requirePremiumDiscount: envBool(process.env.FORWARD_TEST_REQUIRE_PREMIUM_DISCOUNT, defaultForwardTestConfig.requirePremiumDiscount),
+    maxOpenShadowTrades: envNumber(process.env.FORWARD_TEST_MAX_OPEN_SHADOW_TRADES, defaultForwardTestConfig.maxOpenShadowTrades),
   };
 
   const tradeStore = new TradeStore(fastify.db);
   const accountTracker = new AccountTracker(config.initialBalance);
 
-  // Reconstruct balance from existing closed trades
+  // Reconstruct balance from existing closed trades. Agent shadow trades are
+  // excluded — their PnL never touches the strategy account.
   try {
     const allTrades = await tradeStore.getAll({ limit: 500 });
     const closedPnls = allTrades
-      .filter((t) => t.pnl != null)
+      .filter((t) => t.pnl != null && t.metadata?.shadow !== true)
       .reduce((sum, t) => sum + (t.pnl ?? 0), 0);
     if (closedPnls !== 0) {
       accountTracker.reset(config.initialBalance + closedPnls);

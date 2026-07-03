@@ -1,7 +1,11 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { TradeStore } from "../forward-test/trade-store";
 import type { TradeStatus } from "../forward-test/types";
-import { forwardTradesListSchema, forwardTradeByIdSchema } from "../schemas";
+import {
+  forwardTradesListSchema,
+  forwardTradeByIdSchema,
+  shadowTradeSchema,
+} from "../schemas";
 
 interface TradeListQuery {
   status?: string;
@@ -16,6 +20,19 @@ interface TradeIdParams {
 
 interface ManualCloseBody {
   currentPrice: number;
+}
+
+interface ShadowTradeBody {
+  symbol?: string;
+  side: "long" | "short";
+  entry: number;
+  stopLoss: number;
+  takeProfit: number;
+  entryType?: "limit" | "market";
+  timeoutCandles?: number;
+  clientOrderId?: string;
+  agent?: string;
+  notes?: string;
 }
 
 export async function forwardTradeRoutes(fastify: FastifyInstance) {
@@ -58,6 +75,39 @@ export async function forwardTradeRoutes(fastify: FastifyInstance) {
       }
 
       return trade;
+    },
+  );
+
+  // POST /api/forward-trades/shadow — open an agent shadow trade. It enters
+  // the live engine's tick lifecycle: limit entries fill on retrace, market
+  // entries at the next tick, SL/TP resolve automatically, timeout applies.
+  fastify.post(
+    "/forward-trades/shadow",
+    { schema: shadowTradeSchema },
+    async (request: FastifyRequest<{ Body: ShadowTradeBody }>, reply) => {
+      const b = request.body;
+
+      try {
+        const trade = await fastify.forwardTestEngine.openShadowTrade({
+          symbol: b.symbol ?? "BTCUSDT",
+          side: b.side,
+          entry: b.entry,
+          stopLoss: b.stopLoss,
+          takeProfit: b.takeProfit,
+          entryType: b.entryType ?? "limit",
+          // Default horizon 288 five-minute bars (24h) — agents typically
+          // think in longer holds than the strategy's calibrated 4h.
+          timeoutCandles: b.timeoutCandles ?? 288,
+          clientOrderId: b.clientOrderId,
+          agent: b.agent,
+          notes: b.notes,
+        });
+        reply.status(201);
+        return trade;
+      } catch (err) {
+        reply.status(400);
+        return { error: "bad_request", message: (err as Error).message };
+      }
     },
   );
 

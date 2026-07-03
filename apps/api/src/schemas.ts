@@ -283,6 +283,40 @@ export const forwardTradeByIdSchema = {
   },
 } as const;
 
+export const shadowTradeSchema = {
+  tags: ["forward-test"],
+  summary: "Open an agent shadow trade (auto-managed SL/TP)",
+  description:
+    "Places a simulated trade that the live engine then manages on real 5m ticks: a `limit` entry fills when price retraces to `entry` (long: low ≤ entry, short: high ≥ entry); a `market` entry fills at the next tick's real price (your `entry` is recorded but the observed price wins). Once active, SL/TP resolve automatically against tick ranges (if one bar reaches both, SL wins), and the trade times out after `timeoutCandles` 5m bars (default 288 = 24h). Shadow trades are fully isolated from the live strategy's forward-test: no confluence gates or RR minimum, a separate open-trade cap, fixed position sizing, and PnL that never touches the strategy account. Price geometry must be coherent: long needs stopLoss < entry < takeProfit; short needs takeProfit < entry < stopLoss. Pass a `clientOrderId` for idempotent retries. Returns the created trade (201); watch it via GET /forward-trades or the trade WebSocket events.",
+  body: {
+    type: "object",
+    required: ["side", "entry", "stopLoss", "takeProfit"],
+    properties: {
+      symbol,
+      side: { type: "string", enum: ["long", "short"] },
+      entry: { type: "number", exclusiveMinimum: 0, description: "Entry price (limit level, or reference for market entries)" },
+      stopLoss: { type: "number", exclusiveMinimum: 0 },
+      takeProfit: { type: "number", exclusiveMinimum: 0 },
+      entryType: {
+        type: "string",
+        enum: ["limit", "market"],
+        default: "limit",
+        description: "limit = fill on retrace to entry; market = fill at next observed tick",
+      },
+      timeoutCandles: {
+        type: "integer",
+        minimum: 1,
+        maximum: 2016,
+        default: 288,
+        description: "Auto-close horizon in 5m bars (288 = 24h, max 2016 = 1 week)",
+      },
+      clientOrderId: { type: "string", maxLength: 128, description: "Idempotency key — retrying the same id returns the existing open trade" },
+      agent: { type: "string", maxLength: 64, description: "Agent identity, e.g. 'hermes' (default). Becomes strategyName '<agent>-shadow'" },
+      notes: { type: "string", maxLength: 1000, description: "Free-text rationale, stored on the trade" },
+    },
+  },
+} as const;
+
 export const backtestRunSchema = {
   tags: ["backtest"],
   summary: "Run a backtest over a historical window",

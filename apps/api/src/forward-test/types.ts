@@ -28,6 +28,40 @@ export interface ForwardTestConfig {
   requireKillzone: boolean;
   /** Reject longs in premium and shorts in discount (equilibrium passes both). */
   requirePremiumDiscount: boolean;
+  /**
+   * Cap on concurrently open agent shadow trades. Shadow trades live in their
+   * own budget — they never consume maxOpenTrades / maxTradesPerDay slots and
+   * never touch the strategy account balance.
+   */
+  maxOpenShadowTrades: number;
+}
+
+/**
+ * A shadow trade placed by an external agent (Hermes). It runs through the
+ * same tick lifecycle as strategy trades (entry fill, SL/TP, timeout) but is
+ * fully isolated from the live forward-test: no confluence gates, no RR
+ * minimum, its own open-trade cap, PnL sized against the fixed initialBalance
+ * and never applied to the account tracker.
+ */
+export interface ShadowTradeRequest {
+  symbol: string;
+  side: "long" | "short";
+  entry: number;
+  stopLoss: number;
+  takeProfit: number;
+  /**
+   * "limit" (default): fills when price retraces to `entry` (long: low ≤ entry,
+   * short: high ≥ entry). "market": fills at the next observed tick's close —
+   * the agent's quoted entry is recorded but the real fill price wins.
+   */
+  entryType: "limit" | "market";
+  /** Per-trade timeout in 5m bars; falls back to config.tradeTimeoutCandles. */
+  timeoutCandles?: number;
+  /** Idempotency key — replaying the same id returns the existing open trade. */
+  clientOrderId?: string;
+  /** Agent identity recorded in metadata; also drives strategyName. */
+  agent?: string;
+  notes?: string;
 }
 
 /**
@@ -95,4 +129,5 @@ export const defaultForwardTestConfig: ForwardTestConfig = {
   minSetupScore: 70,
   requireKillzone: true,
   requirePremiumDiscount: true,
+  maxOpenShadowTrades: 5,
 };
