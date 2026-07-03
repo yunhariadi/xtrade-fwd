@@ -90,8 +90,11 @@ export default function HomePage() {
           <LogoutButton />
         </div>
       </header>
-      <div className="flex-1 flex">
-        <div className="flex-1">
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* min-w-0 lets this flex item shrink below the chart canvas's fixed
+            pixel width when the sidebar reopens; without it the row overflows
+            to the right instead of squeezing the chart. */}
+        <div className="flex-1 min-w-0 overflow-hidden">
           <CandlestickChart
             symbol="BTCUSDT"
             timeframe={timeframe}
@@ -102,7 +105,7 @@ export default function HomePage() {
 
         </div>
         {sidebarOpen ? (
-          <aside className="w-72 border-l border-gray-800 flex flex-col">
+          <aside className="w-72 shrink-0 border-l border-gray-800 flex flex-col">
             {/* Tab switcher */}
             <div className="flex items-stretch border-b border-gray-800">
               <button
@@ -151,7 +154,7 @@ export default function HomePage() {
         ) : (
           <button
             onClick={() => setSidebarOpen(true)}
-            className="w-6 border-l border-gray-800 flex items-center justify-center text-gray-600 hover:text-gray-200 hover:bg-gray-900/60"
+            className="w-6 shrink-0 border-l border-gray-800 flex items-center justify-center text-gray-600 hover:text-gray-200 hover:bg-gray-900/60"
             title="Show panel"
             aria-label="Show panel"
           >
