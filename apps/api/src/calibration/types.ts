@@ -10,6 +10,13 @@ export interface CalibrationConfig {
   minRiskReward: number;
   /** Only sample bars inside London/New York killzones (where setups form). Default true. */
   killzonesOnly: boolean;
+  /**
+   * How the trade direction is chosen. "packet" (default) = the decision
+   * packet's layered bias. "counterHtf" = AGAINST the 4h bias (skip when the
+   * 4h bias is neutral) — the variant motivated by htfBiasAligned's inverted
+   * lift holding out-of-sample across runs 4–8.
+   */
+  directionMode?: "packet" | "counterHtf";
 }
 
 export interface CalibrationRunResult {

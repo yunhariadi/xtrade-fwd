@@ -21,6 +21,21 @@ import type {
  *   priceWithPocDirection   +5 → −5  (lift −16.7pp, n=1752 with)
  *   volumeProfileOpposes  −10 → +10  (lift +17.0pp, n=145 with)
  * Re-validate these against future calibration runs before trusting further.
+ *
+ * CLEANUP 2026-07-03 (after OOS run 8, 2025-H2): the htfBiasAligned flip held
+ * out-of-sample (the one robust cross-period finding). fvgAlignsVolumeProfile
+ * turned out perfectly collinear with priceWithPocDirection — the VP `bias` is
+ * derived from price-vs-POC, so both booleans measured the same thing twice.
+ * priceWithPocDirection keeps the price-vs-POC weight; fvgAlignsVolumeProfile
+ * was redefined in the packet assembler to a real volume-shape measurement
+ * (active FVG overlaps an LVN) and sits at WEIGHT 0: measured by calibration
+ * runs but not scored until it shows out-of-sample lift.
+ *
+ * Structurally constant in the fvg-retrace calibration population (NOT bugs —
+ * they vary for general packet consumers): validFvg (always true: samples are
+ * FVG setups by construction), irlErlUnclear (FVG touch = recent IRL
+ * interaction, so the draw is never "unclear"), noCleanInvalidation
+ * (invalidation is always derived when an entry exists).
  */
 export const SCORE_WEIGHTS: Record<keyof ScoreSignals, number> = {
   // Confluence signals (designed positive; flipped entries per calibration)
@@ -33,7 +48,8 @@ export const SCORE_WEIGHTS: Record<keyof ScoreSignals, number> = {
   mssConfirmed: 15,
   displacementPresent: 10,
   validFvg: 10,
-  fvgAlignsVolumeProfile: -10,
+  // Candidate under measurement (FVG × LVN overlap) — see CLEANUP note above.
+  fvgAlignsVolumeProfile: 0,
   priceWithPocDirection: -5,
   clearErlTarget: 10,
   rrAboveTwo: 10,

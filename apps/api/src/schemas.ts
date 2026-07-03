@@ -378,6 +378,13 @@ export const calibrationRunSchema = {
         default: true,
         description: "Sample only London/New York killzone bars",
       },
+      directionMode: {
+        type: "string",
+        enum: ["packet", "counterHtf"],
+        default: "packet",
+        description:
+          "packet = trade the decision packet's layered bias; counterHtf = trade AGAINST the 4h bias (skips 4h-neutral bars)",
+      },
     },
   },
 } as const;

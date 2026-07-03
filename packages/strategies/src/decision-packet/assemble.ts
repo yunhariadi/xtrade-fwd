@@ -394,7 +394,13 @@ function buildScoreSignals(s: ScoreInputs): ScoreSignals {
     mssConfirmed: dir !== "none" && s.mssDirection === wantBias,
     displacementPresent: s.amd.displacement !== "none",
     validFvg: s.activeFvg !== null || s.risk.preferredEntry !== null,
-    fvgAlignsVolumeProfile: s.activeFvg !== null && dir !== "none" && vpDir === wantBias,
+    // Redefined 2026-07-03: the old definition (vp bias matches direction) was
+    // collinear with priceWithPocDirection because vp bias IS price-vs-POC.
+    // Now a volume-shape measurement: the gap cuts through a low-volume node,
+    // the classic "gap through a thin shelf retraces cleanly" hypothesis.
+    // Weight 0 in scoring — measured by calibration, not scored yet.
+    fvgAlignsVolumeProfile:
+      s.activeFvg !== null && s.dailyVp != null && fvgOverlapsLvn(s.activeFvg, s.dailyVp),
     priceWithPocDirection:
       s.dailyVp != null &&
       ((dir === "long" && s.lastClose > s.dailyVp.poc) ||
@@ -408,7 +414,14 @@ function buildScoreSignals(s: ScoreInputs): ScoreSignals {
         (dir === "short" && s.weekly?.permission.shortAllowed === false)),
     noClearAmd: s.amd.phase === "unknown",
     irlErlUnclear: s.irlErl.currentDraw === "unclear",
-    trappedInValueArea: s.dailyVp?.priceLocation === "inside_value",
+    // "Trapped" = anywhere within the value area (chop zone). The old check
+    // for the "inside_value" location alone could never fire: that location
+    // means price EXACTLY at the POC bin center (float equality) — run 8
+    // showed 0/437 samples. upper/lower_value are also inside the VA.
+    trappedInValueArea:
+      s.dailyVp != null &&
+      s.dailyVp.priceLocation !== "above_value" &&
+      s.dailyVp.priceLocation !== "below_value",
     alreadyReachedErl:
       dir !== "none" &&
       s.irlErl.currentDraw === "IRL_to_ERL" &&
@@ -424,4 +437,9 @@ function buildScoreSignals(s: ScoreInputs): ScoreSignals {
 /** The IRL/ERL result only exposes a single `to`; rebuild an ERL pool from it. */
 function buildErlOnly(irlErl: IrlErlResult): LiquidityTarget[] {
   return irlErl.to && irlErl.to.category === "ERL" ? [irlErl.to] : [];
+}
+
+/** True when any low-volume node's price falls inside the FVG's range. */
+function fvgOverlapsLvn(zone: FvgZone, vp: VolumeProfile): boolean {
+  return vp.lvn.some((node) => node.price >= zone.bottom && node.price <= zone.top);
 }

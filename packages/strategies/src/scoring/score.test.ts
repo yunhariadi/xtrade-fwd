@@ -49,11 +49,11 @@ describe("scoreSetup", () => {
   it("treats calibration-flipped signals with their flipped signs", () => {
     const r = scoreSetup({
       htfBiasAligned: true, // -15 (flipped)
-      fvgAlignsVolumeProfile: true, // -10 (flipped)
+      fvgAlignsVolumeProfile: true, // 0 (retired duplicate; measured, not scored)
       priceWithPocDirection: true, // -5 (flipped)
       volumeProfileOpposes: true, // +10 (flipped)
     });
-    expect(r.raw).toBe(-20);
+    expect(r.raw).toBe(-10);
     expect(r.total).toBe(0);
   });
 

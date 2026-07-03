@@ -94,9 +94,23 @@ export class CalibrationRunner {
         fvgZones,
       });
 
-      // Packet bias picks the direction; the FVG-retrace model executes it.
-      const direction = packet.risk.direction;
-      if (direction === "none") continue;
+      // Direction: packet layered bias by default; "counterHtf" trades
+      // against the 4h bias instead (see CalibrationConfig.directionMode).
+      // Note for lift interpretation in counterHtf mode: the recorded
+      // signals/score still describe the packet's own intended direction,
+      // while the outcome describes the counter-trade — read the headline
+      // WR/avgR, not per-signal lift.
+      let direction: "long" | "short";
+      if (config.directionMode === "counterHtf") {
+        const fourH = packet.bias.fourH;
+        if (fourH === "bullish") direction = "short";
+        else if (fourH === "bearish") direction = "long";
+        else continue;
+      } else {
+        const packetDirection = packet.risk.direction;
+        if (packetDirection === "none") continue;
+        direction = packetDirection;
+      }
 
       const setup = buildFvgRetraceSetup({
         direction,

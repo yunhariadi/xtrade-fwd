@@ -14,6 +14,7 @@ interface RunBody {
   horizonCandles?: number;
   minRiskReward?: number;
   killzonesOnly?: boolean;
+  directionMode?: "packet" | "counterHtf";
 }
 
 interface IdParams {
@@ -56,6 +57,7 @@ export async function calibrationRoutes(fastify: FastifyInstance) {
         horizonCandles: body.horizonCandles ?? 48,
         minRiskReward: body.minRiskReward ?? 1.5,
         killzonesOnly: body.killzonesOnly ?? true,
+        directionMode: body.directionMode ?? "packet",
       };
 
       const startMs = new Date(config.startDate).getTime();

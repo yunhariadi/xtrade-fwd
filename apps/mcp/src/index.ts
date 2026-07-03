@@ -418,6 +418,10 @@ server.registerTool(
       horizonCandles: z.number().int().min(1).max(500).default(48).describe("Look-ahead 5m candles (48 = 4h)"),
       minRiskReward: z.number().min(0).default(1.5),
       killzonesOnly: z.boolean().default(true).describe("Sample only London/New York killzone bars"),
+      directionMode: z
+        .enum(["packet", "counterHtf"])
+        .default("packet")
+        .describe("packet = layered-bias direction; counterHtf = trade AGAINST the 4h bias"),
     },
   },
   (args) => jsonTool(() => apiPost("/calibration/run", args)),
