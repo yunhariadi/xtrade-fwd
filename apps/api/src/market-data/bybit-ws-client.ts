@@ -30,8 +30,27 @@ export interface BybitKlineMessage {
   data: BybitKlineData[];
 }
 
+/** One entry in a Bybit publicTrade push (`data` is an array of these). */
+export interface BybitTradeData {
+  T: number; // trade time (ms)
+  s: string; // symbol, e.g. "BTCUSDT"
+  S: "Buy" | "Sell"; // taker side
+  v: string; // trade size (base asset)
+  p: string; // trade price
+  i: string; // trade id
+  BT?: boolean; // block trade
+}
+
+export interface BybitTradeMessage {
+  topic: string; // "publicTrade.BTCUSDT"
+  type: string; // "snapshot"
+  ts: number;
+  data: BybitTradeData[];
+}
+
 export declare interface BybitWsClient {
   on(event: "kline", listener: (msg: BybitKlineMessage) => void): this;
+  on(event: "trade", listener: (msg: BybitTradeMessage) => void): this;
   on(event: "connected", listener: () => void): this;
   on(event: "disconnected", listener: (code: number, reason: string) => void): this;
   on(event: "reconnecting", listener: (attempt: number) => void): this;
@@ -105,9 +124,13 @@ export class BybitWsClient extends EventEmitter {
     try {
       const parsed = JSON.parse(raw);
 
-      // Only forward kline pushes; skip subscribe acks, pong replies, etc.
-      if (typeof parsed.topic === "string" && parsed.topic.startsWith("kline.") && Array.isArray(parsed.data)) {
-        this.emit("kline", parsed as BybitKlineMessage);
+      // Only forward kline/trade pushes; skip subscribe acks, pong replies, etc.
+      if (typeof parsed.topic === "string" && Array.isArray(parsed.data)) {
+        if (parsed.topic.startsWith("kline.")) {
+          this.emit("kline", parsed as BybitKlineMessage);
+        } else if (parsed.topic.startsWith("publicTrade.")) {
+          this.emit("trade", parsed as BybitTradeMessage);
+        }
       }
     } catch {
       // Malformed JSON — skip silently

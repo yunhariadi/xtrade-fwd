@@ -2,7 +2,8 @@ import type { Pool } from "pg";
 import type { FastifyInstance } from "fastify";
 import type { Candle } from "@ict-forward-lab/core";
 import { BinanceWsClient } from "./binance-ws-client";
-import { BybitWsClient } from "./bybit-ws-client";
+import { BybitWsClient, type BybitTradeMessage } from "./bybit-ws-client";
+import { DeltaRecorder } from "./delta-recorder";
 import { normalizeKline, type NormalizationResult } from "./kline-normalizer";
 import { normalizeBybitKline } from "./bybit-kline-normalizer";
 import { timeframeToBybitInterval, timeframeToDuration } from "./timeframe-utils";
@@ -18,6 +19,7 @@ interface SourceClient {
   connect(): void;
   disconnect(): void;
   on(event: "kline", listener: (raw: unknown) => void): void;
+  on(event: "trade", listener: (raw: unknown) => void): void;
   on(event: "connected", listener: () => void): void;
   on(event: "disconnected", listener: (code: number, reason: string) => void): void;
   on(event: "reconnecting", listener: (attempt: number) => void): void;
@@ -52,6 +54,9 @@ export class MarketDataService {
   private strategyRunner: StrategyRunner;
   private alertStore: AlertStore;
   private alertMonitor: AlertMonitor;
+  // Records taker buy/sell volume per 5m bar from the Bybit trade stream, for
+  // future CVD/delta calibration. Bybit only — klines carry no taker split.
+  private deltaRecorder: DeltaRecorder | null = null;
 
   constructor(private options: MarketDataServiceOptions) {
     this.source = getMarketSource();
@@ -65,6 +70,16 @@ export class MarketDataService {
       const topics = options.timeframes.map(
         (tf) => `kline.${timeframeToBybitInterval(tf)}.${symbol}`,
       );
+      topics.push(`publicTrade.${symbol}`);
+      this.deltaRecorder = new DeltaRecorder({
+        pool: options.pool,
+        exchange: this.exchange,
+        symbol,
+        timeframe: EXECUTION_TIMEFRAME,
+        bucketSeconds: timeframeToDuration(EXECUTION_TIMEFRAME),
+        onError: (err) =>
+          options.fastify.log.error(`Delta flush failed: ${err.message}`),
+      });
       this.wsClient = new BybitWsClient({
         url,
         topics,
@@ -171,6 +186,9 @@ export class MarketDataService {
 
   async stop(): Promise<void> {
     this.wsClient.disconnect();
+    // Persist the in-progress delta bucket (as partial) so its trades survive
+    // a restart; the summing upsert merges the post-restart half back in.
+    await this.deltaRecorder?.flushOpen();
     this.options.fastify.log.info("MarketDataService stopped");
   }
 
@@ -197,8 +215,23 @@ export class MarketDataService {
       }
     });
 
+    if (this.deltaRecorder) {
+      const recorder = this.deltaRecorder;
+      const symbol = this.options.symbol.toUpperCase();
+      this.wsClient.on("trade", (raw: unknown) => {
+        const msg = raw as BybitTradeMessage;
+        for (const t of msg.data) {
+          if (t.s !== symbol) continue;
+          recorder.onTrade({ timeMs: t.T, side: t.S, size: Number(t.v) });
+        }
+      });
+    }
+
     this.wsClient.on("connected", () => {
       this.options.fastify.log.info(`Connected to ${this.source} WS`);
+      // Klines are backfilled below, but the trade stream has no history API —
+      // buckets spanning the gap can't be completed, so flag them.
+      this.deltaRecorder?.onStreamGap();
       void this.handleReconnect();
     });
 
