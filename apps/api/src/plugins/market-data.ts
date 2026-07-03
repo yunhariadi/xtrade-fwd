@@ -11,6 +11,7 @@ declare module "fastify" {
     strategyRunner: StrategyRunner;
     alertStore: AlertStore;
     alertMonitor: AlertMonitor;
+    marketDataService: MarketDataService;
   }
 }
 
@@ -42,6 +43,9 @@ export const marketDataPlugin = fp(async (fastify: FastifyInstance) => {
   // Decorate Fastify with alert store + monitor for the alerts routes
   fastify.decorate("alertStore", marketDataService.getAlertStore());
   fastify.decorate("alertMonitor", marketDataService.getAlertMonitor());
+
+  // Whole service for /api/health's feed-freshness report
+  fastify.decorate("marketDataService", marketDataService);
 
   // Connect to Binance WS after server is ready, stop on close
   fastify.addHook("onReady", async () => {

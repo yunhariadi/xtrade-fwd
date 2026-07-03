@@ -35,4 +35,8 @@ EXPOSE 3001
 # The API runs via tsx (like dev): the TS build targets a bundler
 # (module: ESNext, moduleResolution: bundler) and emits extensionless ESM
 # imports that Node's native loader can't resolve, but tsx resolves them.
-CMD ["sh", "-c", "pnpm --filter @ict-forward-lab/api migrate && pnpm --filter @ict-forward-lab/api start"]
+#
+# `exec node` (not `pnpm start`) so node becomes PID 1 and receives docker's
+# SIGTERM directly — through the sh→pnpm→node chain the signal never arrived,
+# so graceful shutdown (delta-bucket flush, WS teardown) silently never ran.
+CMD ["sh", "-c", "pnpm --filter @ict-forward-lab/api migrate && cd apps/api && exec node --import tsx src/server.ts"]

@@ -43,6 +43,19 @@ export interface MarketDataServiceOptions {
  */
 const EXECUTION_TIMEFRAME = "5m";
 
+/** Feed-health snapshot exposed via /api/health. */
+export interface FeedStatus {
+  source: string;
+  symbol: string;
+  /** Seconds since the last kline push (any timeframe). */
+  lastKlineAgeSec: number;
+  /** Seconds since the last publicTrade push; null on non-Bybit sources. */
+  lastTradeAgeSec: number | null;
+  staleThresholdSec: number;
+  /** True when either stream has been silent past the threshold. */
+  stale: boolean;
+}
+
 export class MarketDataService {
   private source: MarketSource;
   private exchange: string;
@@ -57,6 +70,17 @@ export class MarketDataService {
   // Records taker buy/sell volume per 5m bar from the Bybit trade stream, for
   // future CVD/delta calibration. Bybit only — klines carry no taker split.
   private deltaRecorder: DeltaRecorder | null = null;
+
+  // Feed watchdog: the forward-test is only valid while ticks flow, and a WS
+  // that dies in a way the reconnect logic misses would otherwise fail silent.
+  private lastKlineAtMs = 0;
+  private lastTradeAtMs = 0;
+  private watchdogTimer: NodeJS.Timeout | null = null;
+  private feedStaleAlerted = false;
+  private readonly staleThresholdSec = (() => {
+    const v = Number(process.env.FEED_STALE_THRESHOLD_SEC);
+    return Number.isFinite(v) && v > 0 ? v : 180;
+  })();
 
   constructor(private options: MarketDataServiceOptions) {
     this.source = getMarketSource();
@@ -153,6 +177,11 @@ export class MarketDataService {
     this.setupEventHandlers();
     this.wsClient.connect();
 
+    // Grace period: count staleness from now, not from the epoch.
+    this.lastKlineAtMs = Date.now();
+    this.lastTradeAtMs = Date.now();
+    this.watchdogTimer = setInterval(() => this.checkFeedHealth(), 30_000);
+
     this.options.fastify.log.info(`Market data source: ${this.source}`);
 
     // Load historical candles for FVG tracking.
@@ -185,6 +214,10 @@ export class MarketDataService {
   }
 
   async stop(): Promise<void> {
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer);
+      this.watchdogTimer = null;
+    }
     this.wsClient.disconnect();
     // Persist the in-progress delta bucket (as partial) so its trades survive
     // a restart; the summing upsert merges the post-restart half back in.
@@ -208,8 +241,81 @@ export class MarketDataService {
     return this.alertMonitor;
   }
 
+  getFeedStatus(): FeedStatus {
+    const now = Date.now();
+    const lastKlineAgeSec = Math.floor((now - this.lastKlineAtMs) / 1000);
+    const lastTradeAgeSec =
+      this.source === "bybit"
+        ? Math.floor((now - this.lastTradeAtMs) / 1000)
+        : null;
+    const stale =
+      lastKlineAgeSec > this.staleThresholdSec ||
+      (lastTradeAgeSec !== null && lastTradeAgeSec > this.staleThresholdSec);
+
+    return {
+      source: this.source,
+      symbol: this.options.symbol.toUpperCase(),
+      lastKlineAgeSec,
+      lastTradeAgeSec,
+      staleThresholdSec: this.staleThresholdSec,
+      stale,
+    };
+  }
+
+  /**
+   * Alarm on feed-stale transitions (and recovery) through the existing
+   * outbound alert webhook, so a silently dead stream reaches Hermes/Telegram
+   * instead of only a log nobody watches.
+   */
+  private checkFeedHealth(): void {
+    const status = this.getFeedStatus();
+
+    if (status.stale && !this.feedStaleAlerted) {
+      this.feedStaleAlerted = true;
+      this.options.fastify.log.error(
+        `[feed-watchdog] STALE: no kline for ${status.lastKlineAgeSec}s` +
+          (status.lastTradeAgeSec !== null
+            ? `, no trade for ${status.lastTradeAgeSec}s`
+            : "") +
+          ` (threshold ${status.staleThresholdSec}s)`,
+      );
+      void this.postFeedWebhook("feed:stale", status);
+    } else if (!status.stale && this.feedStaleAlerted) {
+      this.feedStaleAlerted = false;
+      this.options.fastify.log.info("[feed-watchdog] recovered");
+      void this.postFeedWebhook("feed:recovered", status);
+    }
+  }
+
+  private async postFeedWebhook(type: string, status: FeedStatus): Promise<void> {
+    const url = process.env.ALERT_WEBHOOK_URL?.trim();
+    if (!url) return;
+    const secret = process.env.ALERT_WEBHOOK_SECRET?.trim();
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(secret ? { "x-webhook-secret": secret } : {}),
+        },
+        body: JSON.stringify({ type, data: { ...status, at: new Date().toISOString() } }),
+        signal: controller.signal,
+      });
+    } catch (err) {
+      this.options.fastify.log.warn(
+        `[feed-watchdog] webhook delivery failed: ${(err as Error).message}`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private setupEventHandlers(): void {
     this.wsClient.on("kline", (raw: unknown) => {
+      this.lastKlineAtMs = Date.now();
       for (const result of this.parse(raw)) {
         void this.processCandle(result);
       }
@@ -219,6 +325,7 @@ export class MarketDataService {
       const recorder = this.deltaRecorder;
       const symbol = this.options.symbol.toUpperCase();
       this.wsClient.on("trade", (raw: unknown) => {
+        this.lastTradeAtMs = Date.now();
         const msg = raw as BybitTradeMessage;
         for (const t of msg.data) {
           if (t.s !== symbol) continue;
