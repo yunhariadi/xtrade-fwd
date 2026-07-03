@@ -18,6 +18,7 @@ DB_NAME="${DB_NAME:-ict_forward_lab}"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/xtrade-fwd}"
 KEEP_DAYS="${KEEP_DAYS:-14}"
 BACKUP_REMOTE="${BACKUP_REMOTE:-}"
+REMOTE_KEEP_DAYS="${REMOTE_KEEP_DAYS:-30}"
 
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
 OUT="$BACKUP_DIR/${DB_NAME}-${STAMP}.sql.gz"
@@ -35,6 +36,12 @@ find "$BACKUP_DIR" -name "${DB_NAME}-*.sql.gz" -mtime "+${KEEP_DAYS}" -delete
 if [ -n "$BACKUP_REMOTE" ]; then
   if scp -o BatchMode=yes -o ConnectTimeout=15 "$OUT" "$BACKUP_REMOTE"; then
     echo "$(date -u +%FT%TZ) shipped to $BACKUP_REMOTE"
+    # Prune old dumps on the remote too (host = part before ':', dir = after).
+    REMOTE_HOST="${BACKUP_REMOTE%%:*}"
+    REMOTE_DIR="${BACKUP_REMOTE#*:}"
+    ssh -o BatchMode=yes -o ConnectTimeout=15 "$REMOTE_HOST" \
+      "find '$REMOTE_DIR' -name '${DB_NAME}-*.sql.gz' -mtime +${REMOTE_KEEP_DAYS} -delete" \
+      || echo "$(date -u +%FT%TZ) WARNING: remote prune failed" >&2
   else
     echo "$(date -u +%FT%TZ) WARNING: off-box copy to $BACKUP_REMOTE failed" >&2
   fi
