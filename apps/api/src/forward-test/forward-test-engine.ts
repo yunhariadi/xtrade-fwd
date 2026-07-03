@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Candle } from "@ict-forward-lab/core";
+import { getExchange } from "../market-data/market-source";
 import type { StrategySignal } from "@ict-forward-lab/strategies";
 import type { WsServer } from "../market-data/ws-server";
 import type {
@@ -195,7 +196,9 @@ export class ForwardTestEngine {
       signalId,
       strategyName: (signal.metadata?.strategy as string) ?? "ict-model-2022",
       strategyVersion: (signal.metadata?.strategyVersion as string) ?? "1.0.0",
-      exchange: "binance",
+      // The actual market-data source (bybit on the VPS, binance locally) —
+      // trades must record which feed produced their fills.
+      exchange: getExchange(),
       symbol: signal.symbol,
       side: signal.side as "long" | "short",
       status: "pending",
@@ -288,7 +291,9 @@ export class ForwardTestEngine {
       signalId,
       strategyName: `${agent}-shadow`,
       strategyVersion: "1.0.0",
-      exchange: "binance",
+      // The actual market-data source (bybit on the VPS, binance locally) —
+      // trades must record which feed produced their fills.
+      exchange: getExchange(),
       symbol: req.symbol.toUpperCase(),
       side,
       status: "pending",

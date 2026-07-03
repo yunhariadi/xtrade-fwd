@@ -18,6 +18,21 @@ async function migrate(): Promise<void> {
     await client.connect();
     console.log("Connected to database");
 
+    // Ledger of applied migrations. Files recorded here are skipped, so
+    // migrations no longer need to be idempotent to survive the every-boot
+    // run. Pre-ledger databases re-run everything once (all existing files
+    // are IF NOT EXISTS, so that pass is harmless) and are recorded after.
+    await client.query(
+      `CREATE TABLE IF NOT EXISTS schema_migrations (
+         filename TEXT PRIMARY KEY,
+         applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+       )`,
+    );
+    const appliedResult = await client.query<{ filename: string }>(
+      `SELECT filename FROM schema_migrations`,
+    );
+    const applied = new Set(appliedResult.rows.map((r) => r.filename));
+
     const migrationsDir = join(__dirname, "migrations");
     const files = await readdir(migrationsDir);
     const sqlFiles = files.filter((f) => f.endsWith(".sql")).sort();
@@ -27,14 +42,30 @@ async function migrate(): Promise<void> {
       return;
     }
 
-    console.log(`Found ${sqlFiles.length} migration file(s)`);
+    const pending = sqlFiles.filter((f) => !applied.has(f));
+    console.log(
+      `Found ${sqlFiles.length} migration file(s), ${pending.length} pending`,
+    );
 
-    for (const file of sqlFiles) {
+    for (const file of pending) {
       const filePath = join(migrationsDir, file);
       const sql = await readFile(filePath, "utf-8");
 
       console.log(`Executing migration: ${file}`);
-      await client.query(sql);
+      // Migration + ledger insert commit atomically: a failed migration
+      // rolls back entirely and stays pending.
+      await client.query("BEGIN");
+      try {
+        await client.query(sql);
+        await client.query(
+          `INSERT INTO schema_migrations (filename) VALUES ($1)`,
+          [file],
+        );
+        await client.query("COMMIT");
+      } catch (err) {
+        await client.query("ROLLBACK");
+        throw err;
+      }
       console.log(`  ✓ ${file} executed successfully`);
     }
 
