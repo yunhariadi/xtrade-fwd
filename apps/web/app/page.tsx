@@ -43,6 +43,7 @@ export default function HomePage() {
     showKZ: false,
     showBOS: false,
     showVP: false,
+    showCVD: true,
   });
 
   const [sidebarTab, setSidebarTab] = useState<"signals" | "trades" | "alerts">("signals");

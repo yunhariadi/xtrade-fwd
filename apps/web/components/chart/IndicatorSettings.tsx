@@ -7,6 +7,7 @@ export interface IndicatorConfig {
   showKZ: boolean;
   showBOS: boolean;
   showVP: boolean;
+  showCVD: boolean;
 }
 
 
@@ -47,6 +48,11 @@ export function IndicatorSettings({ config, onChange }: IndicatorSettingsProps) 
         label="VP"
         active={config.showVP}
         onToggle={() => onChange({ ...config, showVP: !config.showVP })}
+      />
+      <ToggleButton
+        label="CVD"
+        active={config.showCVD}
+        onToggle={() => onChange({ ...config, showCVD: !config.showCVD })}
       />
     </div>
 

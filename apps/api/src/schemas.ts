@@ -64,6 +64,39 @@ export const candlesSchema = {
   },
 } as const;
 
+export const deltasSchema = {
+  tags: ["market-data"],
+  summary: "Taker buy/sell volume delta per 5m bar (CVD source data)",
+  description:
+    "Per-5m-bucket taker buy/sell volume recorded live from the exchange trade stream (since 2026-07-03 — no earlier data exists). `delta` = buyVolume − sellVolume; `cvd` is the running sum anchored at the start of the returned window (CVD has no absolute zero). Rows with `isPartial: true` may be missing trades (stream gap) — exclude them from quantitative use. Ascending by time; `time` is **Unix seconds**.",
+  querystring: {
+    type: "object",
+    required: ["symbol"],
+    properties: {
+      symbol,
+      limit: { type: "integer", minimum: 1, maximum: 1500, default: 500 },
+    },
+  },
+  response: {
+    200: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          time: { type: "number", description: "Unix seconds (bucket open)" },
+          buyVolume: { type: "number", description: "Taker-buy base volume" },
+          sellVolume: { type: "number", description: "Taker-sell base volume" },
+          delta: { type: "number", description: "buyVolume − sellVolume" },
+          cvd: { type: "number", description: "Running sum of delta over the returned window" },
+          tradeCount: { type: "number" },
+          isPartial: { type: "boolean", description: "Bucket may be missing trades — exclude from calibration" },
+        },
+      },
+    },
+    400: errorResponse,
+  },
+} as const;
+
 export const structureSchema = {
   tags: ["analysis"],
   summary: "Market-structure breaks (MSS + BOS)",

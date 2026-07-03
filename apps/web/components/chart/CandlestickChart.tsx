@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import {
   createChart,
   CandlestickSeries,
+  BaselineSeries,
   ColorType,
 } from "lightweight-charts";
 import type {
@@ -245,6 +246,61 @@ export function CandlestickChart({ symbol, timeframe, indicators, alerts, onRepl
       setChartReady(false);
     };
   }, [symbol, timeframe]);
+
+  // CVD pane — cumulative taker buy/sell delta, recorded per 5m bucket
+  // (candle_deltas). Only rendered on the 5m timeframe, where the buckets
+  // align 1:1 with the bars above.
+  const showCVD = indicators?.showCVD ?? false;
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chartReady || !chart || !showCVD || timeframe !== "5m") return;
+
+    // Pane index 1 = a separate pane below the price pane.
+    const cvdSeries = chart.addSeries(
+      BaselineSeries,
+      {
+        baseValue: { type: "price", price: 0 },
+        topLineColor: "#22c55e",
+        topFillColor1: "rgba(34, 197, 94, 0.25)",
+        topFillColor2: "rgba(34, 197, 94, 0.02)",
+        bottomLineColor: "#ef4444",
+        bottomFillColor1: "rgba(239, 68, 68, 0.02)",
+        bottomFillColor2: "rgba(239, 68, 68, 0.25)",
+        lineWidth: 1,
+        priceLineVisible: false,
+        title: "CVD",
+      },
+      1,
+    );
+    chart.panes()[1]?.setHeight(110);
+
+    let cancelled = false;
+    const load = () => {
+      fetch(`/api/deltas?symbol=${symbol}&limit=1500`)
+        .then((res) => (res.ok ? res.json() : []))
+        .then((rows: Array<{ time: number; cvd: number }>) => {
+          if (cancelled || rows.length === 0) return;
+          cvdSeries.setData(
+            rows.map((d) => ({ time: d.time as UTCTimestamp, value: d.cvd })),
+          );
+        })
+        .catch(() => {});
+    };
+
+    load();
+    // New buckets land every 5m; a 60s poll picks them up promptly.
+    const pollId = setInterval(load, 60000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(pollId);
+      try {
+        chart.removeSeries(cvdSeries);
+      } catch {
+        // Chart already disposed (timeframe/symbol change tore it down first)
+      }
+    };
+  }, [chartReady, showCVD, symbol, timeframe]);
 
   // Live updates are paused while in replay mode
   const replayModeRef = useRef(replayMode);
